@@ -1,5 +1,16 @@
 export type Role = 'ceo' | 'head' | 'trainee' | 'staff'
 
+export type BloodGroup = 'A+' | 'A-' | 'B+' | 'B-' | 'AB+' | 'AB-' | 'O+' | 'O-'
+
+export interface FamilyDetails {
+  fatherName?: string
+  fatherOccupation?: string
+  fatherPhone?: string
+  motherName?: string
+  motherOccupation?: string
+  siblings?: string
+}
+
 export interface Employee {
   id: string
   name: string
@@ -12,7 +23,12 @@ export interface Employee {
   hue: number
   active: boolean
   joined?: string
+  /** Age is worked out from this, never stored. */
   dob?: string
+  address?: string
+  bloodGroup?: BloodGroup
+  qualification?: string
+  family?: FamilyDetails
   /** Small data-URL image, resized in the browser before saving. */
   photo?: string
 }
@@ -206,6 +222,9 @@ export interface TdsFiling {
   payments: Record<string, TdsPayment>
   quarters: [SimpleStatus, SimpleStatus, SimpleStatus, SimpleStatus]
   assigneeId: string
+  /** Billed for the year's TDS work so far, and what has come in against it. */
+  fee: number
+  received: number
   remark: string
 }
 
@@ -235,6 +254,8 @@ export interface AuditFiling {
   dataReceived: boolean
   assigneeId: string
   dueDate: string
+  fee: number
+  received: number
   remark: string
   doneOn?: string
 }

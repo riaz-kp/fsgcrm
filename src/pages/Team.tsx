@@ -1,177 +1,16 @@
-import { ArrowRight, Cake, CalendarDays, Camera, Mail, Pencil, Phone, Plus } from 'lucide-react'
-import { useMemo, useRef, useState } from 'react'
+import { ArrowRight, Cake, CalendarDays, Mail, Pencil, Phone, Plus } from 'lucide-react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Avatar, Badge, Button, Card, Field, IconButton, Input, Modal, PageHeader, Progress, Select } from '../components/ui'
-import { cn, daysToBirthday, daysUntil, fmtDate, parseISO, todayISO } from '../lib/format'
-import { ROLES, options } from '../lib/meta'
+import EmployeeForm from '../components/EmployeeForm'
+import { Avatar, Badge, Button, Card, IconButton, PageHeader, Progress } from '../components/ui'
+import { cn, daysToBirthday, daysUntil, fmtDate, parseISO, telHref, tenure } from '../lib/format'
+import { ROLES } from '../lib/meta'
 import { isHead, useCurrentUser, useStore } from '../store'
-import type { Employee, Role } from '../types'
-
-/** Crop to a centred square and shrink, so a phone photo fits in browser storage. */
-function resizePhoto(file: File, size = 240): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    const url = URL.createObjectURL(file)
-    img.onload = () => {
-      const side = Math.min(img.width, img.height)
-      const canvas = document.createElement('canvas')
-      canvas.width = canvas.height = size
-      canvas.getContext('2d')?.drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size)
-      URL.revokeObjectURL(url)
-      resolve(canvas.toDataURL('image/jpeg', 0.85))
-    }
-    img.onerror = () => {
-      URL.revokeObjectURL(url)
-      reject(new Error('Could not read that image'))
-    }
-    img.src = url
-  })
-}
+import type { Employee } from '../types'
 
 function birthdayLabel(dob: string): string {
-  // Day and month only: the year is nobody else's business.
+  // Day and month only: the year is for the person's own page, which only heads and they can open in full.
   return parseISO(dob).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
-}
-
-function tenure(joined: string): string {
-  const months = Math.max(0, Math.floor(-daysUntil(joined) / 30.44))
-  if (months < 1) return 'new'
-  return months < 12 ? `${months} mo` : `${Math.floor(months / 12)} yr${months >= 24 ? 's' : ''}`
-}
-
-function EmployeeForm({ employee, onClose }: { employee?: Employee; onClose: () => void }) {
-  const addEmployee = useStore((s) => s.addEmployee)
-  const updateEmployee = useStore((s) => s.updateEmployee)
-  const employees = useStore((s) => s.employees)
-  const file = useRef<HTMLInputElement>(null)
-  const [error, setError] = useState('')
-  const [f, setF] = useState({
-    name: employee?.name ?? '',
-    title: employee?.title ?? 'Trainee',
-    role: employee?.role ?? ('trainee' as Role),
-    reportsTo: employee ? (employee.reportsTo ?? '') : (employees.find((e) => e.role === 'head')?.id ?? ''),
-    responsibilities: employee?.responsibilities.join(', ') ?? '',
-    phone: employee?.phone ?? '',
-    email: employee?.email ?? '',
-    joined: employee?.joined ?? todayISO(),
-    dob: employee?.dob ?? '',
-    photo: employee?.photo ?? '',
-  })
-  const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((p) => ({ ...p, [k]: v }))
-
-  const pick = async (files: FileList | null) => {
-    const picked = files?.[0]
-    if (!picked) return
-    try {
-      set('photo', await resizePhoto(picked))
-      setError('')
-    } catch {
-      setError('That file could not be read as an image. Try a JPG or PNG.')
-    }
-  }
-
-  const save = () => {
-    if (!f.name.trim()) return
-    const data = {
-      name: f.name.trim(),
-      title: f.title.trim() || ROLES[f.role].label,
-      role: f.role,
-      reportsTo: f.reportsTo || undefined,
-      responsibilities: f.responsibilities
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean),
-      phone: f.phone.trim(),
-      email: f.email.trim(),
-      joined: f.joined || undefined,
-      dob: f.dob || undefined,
-      photo: f.photo || undefined,
-    }
-    if (employee) updateEmployee(employee.id, data)
-    else addEmployee(data)
-    onClose()
-  }
-
-  return (
-    <Modal
-      wide
-      title={employee ? `Edit ${employee.name}` : 'Add team member'}
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="primary" onClick={save} disabled={!f.name.trim()}>
-            {employee ? 'Save changes' : 'Add member'}
-          </Button>
-        </>
-      }
-    >
-      <div className="mb-4 flex items-center gap-4">
-        <Avatar name={f.name || '?'} hue={employee?.hue} photo={f.photo || undefined} size={64} />
-        <div>
-          <div className="flex gap-2">
-            <Button size="sm" icon={<Camera size={14} />} onClick={() => file.current?.click()}>
-              {f.photo ? 'Change photo' : 'Add photo'}
-            </Button>
-            {f.photo && (
-              <Button size="sm" variant="ghost" onClick={() => set('photo', '')}>
-                Remove
-              </Button>
-            )}
-          </div>
-          <input ref={file} type="file" accept="image/*" hidden onChange={(e) => void pick(e.target.files)} />
-          <p className={cn('mt-1.5 text-xs', error ? 'text-rose-600' : 'text-ink-500')}>{error || 'Cropped to a square and shrunk before saving.'}</p>
-        </div>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Name">
-          <Input value={f.name} onChange={(e) => set('name', e.target.value)} autoFocus={!employee} />
-        </Field>
-        <Field label="Designation">
-          <Input value={f.title} onChange={(e) => set('title', e.target.value)} />
-        </Field>
-        <Field label="Role">
-          <Select value={f.role} onChange={(e) => set('role', e.target.value as Role)}>
-            {options(ROLES).map((r) => (
-              <option key={r.value} value={r.value}>
-                {r.label}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Reports to">
-          <Select value={f.reportsTo} onChange={(e) => set('reportsTo', e.target.value)}>
-            <option value="">No one</option>
-            {employees
-              .filter((e) => isHead(e) && e.id !== employee?.id)
-              .map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.name}
-                </option>
-              ))}
-          </Select>
-        </Field>
-        <Field label="Date of joining">
-          <Input type="date" value={f.joined} max={todayISO()} onChange={(e) => set('joined', e.target.value)} />
-        </Field>
-        <Field label="Date of birth" hint="for birthday wishes">
-          <Input type="date" value={f.dob} max={todayISO()} onChange={(e) => set('dob', e.target.value)} />
-        </Field>
-        <Field label="Usually works on" hint="comma separated" className="sm:col-span-2">
-          <Input value={f.responsibilities} onChange={(e) => set('responsibilities', e.target.value)} placeholder="GST filing, book keeping" />
-        </Field>
-        <Field label="Phone" hint="optional">
-          <Input value={f.phone} onChange={(e) => set('phone', e.target.value)} inputMode="tel" />
-        </Field>
-        <Field label="Email" hint="optional">
-          <Input value={f.email} onChange={(e) => set('email', e.target.value)} type="email" />
-        </Field>
-      </div>
-    </Modal>
-  )
 }
 
 interface Stats {
@@ -186,11 +25,13 @@ function MemberCard({ e, stats, manager, max, onEdit }: { e: Employee; stats?: S
   return (
     <Card className="flex flex-col p-4">
       <div className="flex items-start gap-3">
-        <Avatar name={e.name} hue={e.hue} photo={e.photo} size={48} />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[15px] font-bold text-ink-900">{e.name}</p>
-          <p className="truncate text-[13px] text-ink-500">{e.title}</p>
-        </div>
+        <Link to={`/team/${e.id}`} title={`Open ${e.name}'s page`} className="group flex min-w-0 flex-1 items-start gap-3">
+          <Avatar name={e.name} hue={e.hue} photo={e.photo} size={48} />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[15px] font-bold text-ink-900 group-hover:text-brand-700 group-hover:underline">{e.name}</span>
+            <span className="block truncate text-[13px] text-ink-500">{e.title}</span>
+          </span>
+        </Link>
         <Badge tone={ROLES[e.role].tone}>{ROLES[e.role].label}</Badge>
         {onEdit && (
           <IconButton label={`Edit ${e.name}`} onClick={onEdit} className="-mt-1 -mr-1.5">
@@ -250,22 +91,25 @@ function MemberCard({ e, stats, manager, max, onEdit }: { e: Employee; stats?: S
 
       <div className="mt-4 flex items-center justify-between gap-2 border-t border-ink-100 pt-3 text-xs text-ink-500">
         <span className="min-w-0 truncate">{manager ? `Reports to ${manager.name}` : 'Leads the firm'}</span>
-        <span className="flex shrink-0 items-center gap-2">
+        <span className="flex shrink-0 items-center gap-2.5">
           {e.phone && (
-            <a href={`tel:${e.phone}`} title={e.phone} className="hover:text-ink-800">
+            <a href={telHref(e.phone)} title={`Call ${e.phone}`} className="hover:text-ink-800">
               <Phone size={14} />
             </a>
           )}
           {e.email && (
-            <a href={`mailto:${e.email}`} title={e.email} className="hover:text-ink-800">
+            <a href={`mailto:${e.email}`} title={`Email ${e.email}`} className="hover:text-ink-800">
               <Mail size={14} />
             </a>
           )}
           {stats && (
-            <Link to={`/tasks?assignee=${e.id}`} className="inline-flex items-center gap-1 font-semibold text-brand-700 hover:underline">
-              Tasks <ArrowRight size={13} />
+            <Link to={`/tasks?assignee=${e.id}`} className="font-semibold text-ink-600 hover:text-brand-700 hover:underline">
+              Tasks
             </Link>
           )}
+          <Link to={`/team/${e.id}`} className="inline-flex items-center gap-1 font-semibold text-brand-700 hover:underline">
+            Open <ArrowRight size={13} />
+          </Link>
         </span>
       </div>
     </Card>
@@ -316,7 +160,7 @@ export default function Team() {
     <>
       <PageHeader
         title="Team"
-        subtitle={`${employees.length} people · ${employees.filter(isHead).length} heads`}
+        subtitle={`${employees.length} people · ${employees.filter(isHead).length} heads · open anyone for their details, work and attendance`}
         actions={
           head && (
             <Button variant="primary" icon={<Plus size={16} />} onClick={() => setAdding(true)}>

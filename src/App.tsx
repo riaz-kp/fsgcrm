@@ -7,6 +7,7 @@ import Clients from './pages/Clients'
 import Compliance from './pages/Compliance'
 import Consultations from './pages/Consultations'
 import Dashboard from './pages/Dashboard'
+import EmployeeDetail from './pages/EmployeeDetail'
 import Leads from './pages/Leads'
 import Tasks from './pages/Tasks'
 import Team from './pages/Team'
@@ -27,6 +28,7 @@ export default function App() {
           <Route path="clients/:id" element={<ClientDetail />} />
           <Route path="leads" element={<Leads />} />
           <Route path="team" element={<Team />} />
+          <Route path="team/:id" element={<EmployeeDetail />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

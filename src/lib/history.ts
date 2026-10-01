@@ -3,7 +3,7 @@ import { itDueDate } from './deadlines'
 import { fmtDate, periodLabel, todayISO } from './format'
 import { GST_STATUS, SIMPLE_STATUS, TASK_STATUS, type Tone } from './meta'
 
-/** One piece of work done, or being done, for a client. */
+/** One piece of work done, or being done: a return, a payment, a one-time job or a task. */
 export interface WorkEntry {
   key: string
   /** YYYY-MM the work belongs to: the return period, or the month it was finished or falls due. */
@@ -14,6 +14,9 @@ export interface WorkEntry {
   status: { label: string; tone: Tone }
   done: boolean
   assigneeId?: string
+  clientId?: string
+  /** Who the work is for: the client, or the party of a one-time job taken before they became one. Empty for internal tasks. */
+  party: string
   /** Where to open it. */
   to: string
 }
@@ -35,14 +38,19 @@ const TDS_PAYMENT: Record<TdsFiling['payments'][string], WorkEntry['status']> = 
 
 const closed = (s: ItFiling['status']) => s === 'filed' || s === 'completed'
 
-/** Everything on record for one client, newest month first. */
-export function clientHistory(client: Client, src: Sources): WorkEntry[] {
+/**
+ * Everything on record across the trackers and tasks, newest month first.
+ * A client's page keeps the entries for that client; a person's page keeps the ones assigned to them.
+ */
+export function workEntries(src: Sources, clients: Client[]): WorkEntry[] {
   const out: WorkEntry[] = []
   const thisMonth = todayISO().slice(0, 7)
-  const tracker = (tab: string) => `/filings/${tab}?client=${client.id}`
+  const byId = new Map(clients.map((c) => [c.id, c]))
+  const party = (clientId?: string) => byId.get(clientId ?? '')?.name ?? ''
+  const tracker = (tab: string, clientId?: string) => (clientId ? `/filings/${tab}?client=${clientId}` : `/filings/${tab}`)
 
   for (const g of src.gst) {
-    if (g.clientId !== client.id || g.gstr1 === 'na') continue
+    if (g.gstr1 === 'na') continue
     for (const k of ['gstr1', 'gstr3b'] as const) {
       const status = g[k]
       out.push({
@@ -54,13 +62,15 @@ export function clientHistory(client: Client, src: Sources): WorkEntry[] {
         status: GST_STATUS[status],
         done: status === 'filed' || status === 'nil',
         assigneeId: g.assigneeId,
-        to: tracker('gst'),
+        clientId: g.clientId,
+        party: party(g.clientId),
+        to: tracker('gst', g.clientId),
       })
     }
   }
 
   for (const t of src.tds) {
-    if (t.clientId !== client.id) continue
+    const who = { assigneeId: t.assigneeId, clientId: t.clientId, party: party(t.clientId), to: tracker('tds', t.clientId) }
     for (const [month, payment] of Object.entries(t.payments)) {
       if (payment === 'na') continue
       out.push({
@@ -71,8 +81,7 @@ export function clientHistory(client: Client, src: Sources): WorkEntry[] {
         detail: `Deposit for ${periodLabel(month, true)}`,
         status: TDS_PAYMENT[payment],
         done: payment === 'paid',
-        assigneeId: t.assigneeId,
-        to: tracker('tds'),
+        ...who,
       })
     }
     // Q1 closes in June, Q2 in September, Q3 in December, Q4 in March of the next year.
@@ -88,15 +97,13 @@ export function clientHistory(client: Client, src: Sources): WorkEntry[] {
         detail: `FY ${t.fy}`,
         status: SIMPLE_STATUS[q],
         done: closed(q),
-        assigneeId: t.assigneeId,
-        to: tracker('tds'),
+        ...who,
       })
     })
   }
 
   for (const r of src.it) {
-    if (r.clientId !== client.id) continue
-    const due = itDueDate(r, client)
+    const due = itDueDate(r, byId.get(r.clientId))
     out.push({
       key: r.id,
       month: (r.doneOn ?? due).slice(0, 7),
@@ -106,12 +113,13 @@ export function clientHistory(client: Client, src: Sources): WorkEntry[] {
       status: SIMPLE_STATUS[r.status],
       done: closed(r.status),
       assigneeId: r.assigneeId,
-      to: tracker('it'),
+      clientId: r.clientId,
+      party: party(r.clientId),
+      to: tracker('it', r.clientId),
     })
   }
 
   for (const a of src.audits) {
-    if (a.clientId !== client.id) continue
     out.push({
       key: a.id,
       month: (a.doneOn ?? a.dueDate).slice(0, 7),
@@ -121,12 +129,13 @@ export function clientHistory(client: Client, src: Sources): WorkEntry[] {
       status: SIMPLE_STATUS[a.status],
       done: closed(a.status),
       assigneeId: a.assigneeId,
-      to: tracker('audit'),
+      clientId: a.clientId,
+      party: party(a.clientId),
+      to: tracker('audit', a.clientId),
     })
   }
 
   for (const s of src.services) {
-    if (s.clientId !== client.id) continue
     const when = s.doneOn ? `done ${fmtDate(s.doneOn)}` : `committed for ${fmtDate(s.committedDate)}`
     out.push({
       key: s.id,
@@ -137,12 +146,13 @@ export function clientHistory(client: Client, src: Sources): WorkEntry[] {
       status: SIMPLE_STATUS[s.status],
       done: closed(s.status),
       assigneeId: s.assigneeId,
-      to: tracker('services'),
+      clientId: s.clientId,
+      party: s.party,
+      to: tracker('services', s.clientId),
     })
   }
 
   for (const t of src.tasks) {
-    if (t.clientId !== client.id) continue
     out.push({
       key: t.id,
       month: t.dueDate.slice(0, 7),
@@ -152,9 +162,11 @@ export function clientHistory(client: Client, src: Sources): WorkEntry[] {
       status: TASK_STATUS[t.status],
       done: t.status === 'completed',
       assigneeId: t.assigneeId,
+      clientId: t.clientId,
+      party: party(t.clientId),
       to: `/tasks?open=${t.id}`,
     })
   }
 
-  return out.sort((a, b) => b.month.localeCompare(a.month) || a.dept.localeCompare(b.dept) || a.title.localeCompare(b.title))
+  return out.sort((a, b) => b.month.localeCompare(a.month) || a.dept.localeCompare(b.dept) || a.title.localeCompare(b.title) || a.party.localeCompare(b.party))
 }

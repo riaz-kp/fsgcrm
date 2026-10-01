@@ -211,7 +211,7 @@ export const useStore = create<State>()(
     }),
     {
       name: 'fsg-crm-demo',
-      version: 3,
+      version: 4,
       // The demo's shape changed; older saved sample data is replaced rather than patched.
       migrate: () => ({ ...buildSeed(), currentUserId: 'e-praveen' }) as State,
     },

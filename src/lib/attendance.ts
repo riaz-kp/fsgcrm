@@ -1,5 +1,25 @@
 import type { AttendanceEntry, AttendanceMark } from '../types'
-import { addDays, minutesBetween, parseISO } from './format'
+import { addDays, fmtTime, minutesBetween, parseISO } from './format'
+
+/** Cell colours for the four marks, shared by the register and a person's own page. */
+export const MARK_CELL: Record<AttendanceMark, string> = {
+  P: 'bg-emerald-100 text-emerald-800',
+  H: 'bg-amber-100 text-amber-900',
+  L: 'bg-violet-100 text-violet-800',
+  A: 'bg-rose-100 text-rose-800',
+}
+
+/** '9:12 am – 5:48 pm', or just the time in while the person is still at work. */
+export function timing(e?: AttendanceEntry): string {
+  if (!e?.in) return ''
+  return e.out ? `${fmtTime(e.in)} – ${fmtTime(e.out)}` : `in ${fmtTime(e.in)}`
+}
+
+/** Minutes past midnight -> 'HH:MM'. */
+export function toHHMM(minutes: number): string {
+  const m = Math.round(minutes)
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+}
 
 export interface MonthDay {
   date: string

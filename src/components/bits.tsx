@@ -36,6 +36,19 @@ export function ScopeChips({ scopes, max = 3 }: { scopes: ScopeKey[]; max?: numb
   )
 }
 
+/** One labelled line in a details card. An empty value shows as a dash. */
+export function Detail({ icon, label, children }: { icon?: ReactNode; label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-start gap-3 py-2">
+      <dt className="flex w-36 shrink-0 items-center gap-2 text-[13px] text-ink-500">
+        {icon}
+        {label}
+      </dt>
+      <dd className="min-w-0 flex-1 font-medium break-words text-ink-800">{children || <span className="font-normal text-ink-400">—</span>}</dd>
+    </div>
+  )
+}
+
 /* ---------- Contact links: tap to call, message or mail ---------- */
 
 const CONTACT = 'inline-flex max-w-full items-center gap-1.5 rounded underline-offset-2 hover:underline'

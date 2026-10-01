@@ -148,6 +148,7 @@ function GlobalSearch() {
   const navigate = useNavigate()
   const clients = useStore((s) => s.clients)
   const leads = useStore((s) => s.leads)
+  const employees = useStore((s) => s.employees)
   const tasks = useVisibleTasks()
 
   const results = useMemo(() => {
@@ -155,6 +156,10 @@ function GlobalSearch() {
     if (term.length < 2) return []
     const hit = (s?: string) => !!s && s.toLowerCase().includes(term)
     return [
+      ...employees
+        .filter((e) => hit(e.name))
+        .slice(0, 3)
+        .map((e) => ({ key: e.id, kind: 'Team', title: e.name, sub: e.title, to: `/team/${e.id}` })),
       ...clients
         .filter((c) => hit(c.name) || hit(c.code) || hit(c.phone) || hit(c.whatsapp) || hit(c.gstin) || hit(c.place))
         .slice(0, 5)
@@ -168,7 +173,7 @@ function GlobalSearch() {
         .slice(0, 4)
         .map((t) => ({ key: t.id, kind: 'Task', title: t.title, sub: `Due ${fmtDate(t.dueDate)}`, to: `/tasks?open=${t.id}` })),
     ]
-  }, [q, clients, leads, tasks])
+  }, [q, clients, leads, employees, tasks])
 
   return (
     <div ref={ref} className="relative w-full max-w-md">
@@ -180,7 +185,7 @@ function GlobalSearch() {
           setOpen(true)
         }}
         onFocus={() => setOpen(true)}
-        placeholder="Search clients, leads, tasks…"
+        placeholder="Search clients, leads, tasks, team…"
         aria-label="Search"
         className="h-9 w-full rounded-lg bg-ink-100/70 pr-3 pl-9 text-sm text-ink-800 placeholder:text-ink-400 focus:bg-white focus:ring-2 focus:ring-brand-500 focus:outline-none"
       />

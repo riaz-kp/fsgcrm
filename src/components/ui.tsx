@@ -1,5 +1,5 @@
 import { X } from 'lucide-react'
-import { useEffect, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
+import { useEffect, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
 import { cn, initials } from '../lib/format'
 import type { Tone } from '../lib/meta'
 import type { Employee } from '../types'
@@ -39,27 +39,36 @@ const BUTTON: Record<ButtonVariant, string> = {
   danger: 'bg-white text-rose-700 ring-1 ring-inset ring-rose-200 hover:bg-rose-50',
 }
 
-interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+interface ButtonLook {
   variant?: ButtonVariant
   size?: 'sm' | 'md'
   icon?: ReactNode
 }
 
-export function Button({ variant = 'secondary', size = 'md', icon, className, children, ...rest }: ButtonProps) {
+const buttonClass = (variant: ButtonVariant, size: 'sm' | 'md', className?: string) =>
+  cn(
+    'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg font-semibold whitespace-nowrap transition-colors disabled:opacity-50',
+    size === 'sm' ? 'h-8 px-2.5 text-[13px]' : 'h-9 px-3.5 text-sm',
+    BUTTON[variant],
+    className,
+  )
+
+export function Button({ variant = 'secondary', size = 'md', icon, className, children, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & ButtonLook) {
   return (
-    <button
-      type="button"
-      className={cn(
-        'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg font-semibold whitespace-nowrap transition-colors disabled:opacity-50',
-        size === 'sm' ? 'h-8 px-2.5 text-[13px]' : 'h-9 px-3.5 text-sm',
-        BUTTON[variant],
-        className,
-      )}
-      {...rest}
-    >
+    <button type="button" className={buttonClass(variant, size, className)} {...rest}>
       {icon}
       {children}
     </button>
+  )
+}
+
+/** Looks like a Button, but leaves the app: a link to WhatsApp, a file, another site. */
+export function LinkButton({ variant = 'secondary', size = 'md', icon, className, children, ...rest }: AnchorHTMLAttributes<HTMLAnchorElement> & ButtonLook) {
+  return (
+    <a className={buttonClass(variant, size, className)} {...rest}>
+      {icon}
+      {children}
+    </a>
   )
 }
 

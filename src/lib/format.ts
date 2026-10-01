@@ -169,6 +169,21 @@ export function whatsappHref(phone: string): string {
   return `https://wa.me/${dialDigits(phone)}`
 }
 
+/** Completed years since a date of birth. */
+export function ageFrom(dob: string): number {
+  const born = parseISO(dob)
+  const today = parseISO(todayISO())
+  const hadBirthday = today.getMonth() > born.getMonth() || (today.getMonth() === born.getMonth() && today.getDate() >= born.getDate())
+  return today.getFullYear() - born.getFullYear() - (hadBirthday ? 0 : 1)
+}
+
+/** How long someone has been with the firm: 'new', '7 mo', '3 yrs'. */
+export function tenure(joined: string): string {
+  const months = Math.max(0, Math.floor(-daysUntil(joined) / 30.44))
+  if (months < 1) return 'new'
+  return months < 12 ? `${months} mo` : `${Math.floor(months / 12)} yr${months >= 24 ? 's' : ''}`
+}
+
 /** Days until the next occurrence of a birthday (0 = today). */
 export function daysToBirthday(dob: string): number {
   const today = parseISO(todayISO())

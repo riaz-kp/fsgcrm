@@ -57,6 +57,9 @@ const E = {
   shani: 'e-shani',
 } as const
 
+/** Placeholder birth years, in the order the staff are listed: the heads first, then the trainees. */
+const BIRTH_YEARS = [1984, 1987, 1992, 2001, 2000, 2002, 2001, 2003, 2002]
+
 function employees(today: string): Employee[] {
   let n = 0
   const mk = (
@@ -71,10 +74,12 @@ function employees(today: string): Employee[] {
     const i = n++
     // Placeholder dates so the demo has something to show. One birthday lands
     // today and one later this week; replace with the real ones.
+    // Address, blood group, qualification and family details are left empty on
+    // purpose: these are real people, and those are theirs to fill in.
     const birthday = i === 4 ? today : i === 7 ? addDays(today, 5) : addDays(today, 40 + i * 37)
     return {
       joined: addDays(today, -(2400 - i * 260)),
-      dob: `${1984 + i * 2}${birthday.slice(4)}`,
+      dob: `${BIRTH_YEARS[i]}${birthday.slice(4)}`,
       ...base(id, name, title, role, hue, responsibilities, reportsTo),
     }
   }
@@ -646,14 +651,20 @@ function tds(cs: Client[], today: string): TdsFiling[] {
       // Earlier months are deposited; the month being worked on is a mix.
       const payments: Record<string, TdsPayment> = { [current]: i % 3 === 0 ? 'paid' : 'due' }
       for (let back = 1; back < HISTORY_MONTHS; back++) payments[shiftPeriod(current, -back)] = 'paid'
+      const quarters = patterns[i % patterns.length]
+      // Billed per quarterly return once it is filed; some clients are yet to pay for the last one.
+      const perReturn = c.category === 'Company' || c.category === 'LLP' ? 2500 : 1500
+      const fee = perReturn * quarters.filter((q) => q === 'filed' || q === 'completed').length
       return {
-      id: `tds-${c.id}`,
-      clientId: c.id,
-      fy,
-      payments,
-      quarters: patterns[i % patterns.length],
-      assigneeId: i % 4 === 3 ? E.ramees : E.vijeesh,
-      remark: i % 3 === 1 ? 'Waiting for salary register' : '',
+        id: `tds-${c.id}`,
+        clientId: c.id,
+        fy,
+        payments,
+        quarters,
+        assigneeId: i % 4 === 3 ? E.ramees : E.vijeesh,
+        fee,
+        received: i % 4 === 2 ? 0 : i % 4 === 3 ? fee - 500 : fee,
+        remark: i % 3 === 1 ? 'Waiting for salary register' : '',
       }
     })
 }
@@ -702,6 +713,7 @@ function audits(cs: Client[], today: string): AuditFiling[] {
   cs.forEach((c, i) => {
     if (c.scopes.includes('it_audit')) {
       const [status, reconciliation, note] = states[i % states.length]
+      const fee = c.category === 'Company' ? 25000 : 15000
       out.push({
         id: `au-${c.id}`,
         clientId: c.id,
@@ -712,6 +724,9 @@ function audits(cs: Client[], today: string): AuditFiling[] {
         dataReceived: true,
         assigneeId: i % 2 === 0 ? E.praveen : E.vijeesh,
         dueDate: `${y}-09-30`,
+        fee,
+        // Paid in full once completed, part-paid when filed, and some pay an advance while it is still open.
+        received: status === 'completed' ? fee : status === 'filed' ? fee - 5000 : i % 2 === 0 ? 5000 : 0,
         remark: note,
         doneOn: status === 'pending' ? undefined : addDays(today, -(4 + (i % 20))),
       })
@@ -727,6 +742,8 @@ function audits(cs: Client[], today: string): AuditFiling[] {
         dataReceived: i % 2 === 0,
         assigneeId: E.praveen,
         dueDate: `${y}-10-31`,
+        fee: 12000,
+        received: i % 2 === 0 ? 4000 : 0,
         remark: i % 2 === 0 ? 'Q2 vouching under way' : '',
       })
     }
@@ -760,7 +777,7 @@ function services(cs: Client[], today: string): ServiceJob[] {
 }
 
 /** Fee ledger per client, built from the same figures the trackers show. */
-function ledger(cs: Client[], data: Pick<SeedData, 'gst' | 'it' | 'services'>, today: string) {
+function ledger(cs: Client[], data: Pick<SeedData, 'gst' | 'tds' | 'it' | 'audits' | 'services'>, today: string) {
   const period = currentGstPeriod()
   const modes = ['UPI', 'Bank transfer', 'Cash', 'UPI', 'Cheque'] as const
   cs.forEach((c, i) => {
@@ -791,6 +808,18 @@ function ledger(cs: Client[], data: Pick<SeedData, 'gst' | 'it' | 'services'>, t
       if (s.clientId !== c.id || s.status === 'to_begin') continue
       add(20, 'charge', s.kind, s.fee)
       add(14, 'payment', `Received for ${s.kind}`, s.received)
+    }
+    const tdsRow = data.tds.find((r) => r.clientId === c.id)
+    if (tdsRow) {
+      add(70, 'charge', `TDS returns · FY ${tdsRow.fy}`, tdsRow.fee)
+      add(64, 'payment', 'Received for TDS returns', tdsRow.received)
+    }
+    for (const a of data.audits) {
+      if (a.clientId !== c.id) continue
+      // Billed once the audit is signed off; anything that came in earlier is an advance.
+      const done = a.status === 'filed' || a.status === 'completed'
+      if (done) add(8, 'charge', `${a.kind} · FY ${a.fy}`, a.fee)
+      add(done ? 5 : 25, 'payment', `${done ? 'Received' : 'Advance'} for ${a.kind.toLowerCase()}`, a.received)
     }
     c.transactions = out.sort((a, b) => b.date.localeCompare(a.date))
   })
@@ -842,7 +871,7 @@ export function buildSeed(): SeedData {
   const today = todayISO()
   const cs = clients(today)
   const emps = employees(today)
-  const data = { gst: gst(cs), it: it(cs, today), services: services(cs, today) }
+  const data = { gst: gst(cs), tds: tds(cs, today), it: it(cs, today), audits: audits(cs, today), services: services(cs, today) }
   ledger(cs, data, today)
   return {
     employees: emps,
@@ -850,8 +879,6 @@ export function buildSeed(): SeedData {
     leads: leads(today),
     tasks: tasks(today, cs),
     ...data,
-    tds: tds(cs, today),
-    audits: audits(cs, today),
     consultations: consultations(cs, today),
     attendance: attendance(emps, today),
   }

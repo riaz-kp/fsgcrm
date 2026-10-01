@@ -8,7 +8,6 @@ import {
   FileArchive,
   FileSpreadsheet,
   FileText,
-  History,
   IndianRupee,
   KeyRound,
   Mail,
@@ -27,29 +26,19 @@ import {
 } from 'lucide-react'
 import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { Due, MailLink, PhoneLink, WhatsAppLink } from '../components/bits'
+import { Detail, Due, MailLink, PhoneLink, WhatsAppLink } from '../components/bits'
 import ClientForm from '../components/ClientForm'
+import StatusMessage from '../components/StatusMessage'
+import WorkHistory from '../components/WorkHistory'
 import { Avatar, Badge, Button, Card, CardHeader, Empty, Field, IconButton, Input, Person, Progress, Segmented, Select, Td, Textarea, Th } from '../components/ui'
 import { statutoryDeadlines } from '../lib/deadlines'
-import { clientHistory } from '../lib/history'
+import { workEntries } from '../lib/history'
 import { addDays, cn, currentGstPeriod, daysUntil, fileSize, fmtDate, inr, periodLabel, todayISO, uid } from '../lib/format'
 import { CATEGORY_TONE, DEPARTMENTS, DOC_KINDS, GST_STATUS, PAYMENT_MODES, PORTALS, SCOPES, SCOPE_GROUPS, SCOPE_LABEL, SIMPLE_STATUS, TASK_STATUS } from '../lib/meta'
 import { useCurrentUser, useLookup, useStore, useVisibleTasks } from '../store'
-import type { Client, Credential, Department, DocKind, PaymentMode, Portal, ScopeKey } from '../types'
+import type { Client, Credential, DocKind, PaymentMode, Portal, ScopeKey } from '../types'
 
 type Tab = 'overview' | 'clarifications' | 'fees' | 'logins' | 'documents' | 'work'
-
-function Detail({ icon, label, children }: { icon?: ReactNode; label: string; children: ReactNode }) {
-  return (
-    <div className="flex items-start gap-3 py-2">
-      <dt className="flex w-36 shrink-0 items-center gap-2 text-[13px] text-ink-500">
-        {icon}
-        {label}
-      </dt>
-      <dd className="min-w-0 flex-1 font-medium break-words text-ink-800">{children || <span className="font-normal text-ink-400">—</span>}</dd>
-    </div>
-  )
-}
 
 const SCOPE_CHIP =
   'group inline-flex h-8 max-w-full items-center gap-1.5 rounded-lg bg-brand-50 pr-2 pl-3 text-[13px] font-semibold text-brand-800 ring-1 ring-brand-200 transition-colors ring-inset hover:bg-brand-100 hover:ring-brand-300'
@@ -440,7 +429,7 @@ function Documents({ client }: { client: Client }) {
   )
 }
 
-function Work({ client }: { client: Client }) {
+function Work({ client, onMessage }: { client: Client; onMessage: () => void }) {
   const tasks = useVisibleTasks()
   const gst = useStore((s) => s.gst)
   const tds = useStore((s) => s.tds)
@@ -450,6 +439,10 @@ function Work({ client }: { client: Client }) {
   const { emp } = useLookup()
   const period = currentGstPeriod()
 
+  const history = useMemo(
+    () => workEntries({ gst, tds, it, audits, services, tasks }, [client]).filter((e) => e.clientId === client.id),
+    [client, gst, tds, it, audits, services, tasks],
+  )
   const mine = tasks.filter((t) => t.clientId === client.id).sort((a, b) => a.dueDate.localeCompare(b.dueDate))
   const g = gst.find((x) => x.clientId === client.id && x.period === period)
   const t = tds.find((x) => x.clientId === client.id)
@@ -493,7 +486,15 @@ function Work({ client }: { client: Client }) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <Card>
-        <CardHeader title="Filing status" hint="Where each tracker stands right now" />
+        <CardHeader
+          title="Filing status"
+          hint="Where each tracker stands right now"
+          action={
+            <Button size="sm" icon={<MessageCircle size={14} className="text-emerald-600" />} onClick={onMessage}>
+              Send status
+            </Button>
+          }
+        />
         {lines.length === 0 ? (
           <p className="px-5 pb-5 text-[13px] text-ink-500">Nothing is being tracked for this client yet.</p>
         ) : (
@@ -539,102 +540,8 @@ function Work({ client }: { client: Client }) {
         )}
       </Card>
 
-      <WorkHistory client={client} />
+      <WorkHistory entries={history} by="person" hint="Month by month: what was done for this client and who did it" className="lg:col-span-2" />
     </div>
-  )
-}
-
-/** Registrations and other one-time jobs are filed under the registration department. */
-const HISTORY_FILTERS: Array<{ value: Department | 'all'; label: string }> = [
-  { value: 'all', label: 'All' },
-  { value: 'gst', label: 'GST' },
-  { value: 'tds', label: 'TDS' },
-  { value: 'it', label: 'Income tax' },
-  { value: 'audit', label: 'Audit' },
-  { value: 'registration', label: 'One-time' },
-  { value: 'bookkeeping', label: 'Book keeping' },
-  { value: 'general', label: 'General' },
-]
-
-function WorkHistory({ client }: { client: Client }) {
-  const tasks = useVisibleTasks()
-  const gst = useStore((s) => s.gst)
-  const tds = useStore((s) => s.tds)
-  const it = useStore((s) => s.it)
-  const audits = useStore((s) => s.audits)
-  const services = useStore((s) => s.services)
-  const { emp } = useLookup()
-  const [dept, setDept] = useState<Department | 'all'>('all')
-  const [who, setWho] = useState('')
-
-  const all = useMemo(() => clientHistory(client, { gst, tds, it, audits, services, tasks }), [client, gst, tds, it, audits, services, tasks])
-  const people = useMemo(() => [...new Set(all.map((e) => e.assigneeId).filter((id): id is string => !!id))], [all])
-  const shown = all.filter((e) => (dept === 'all' || e.dept === dept) && (!who || e.assigneeId === who))
-  const months = [...new Set(shown.map((e) => e.month))]
-  // Only offer the kinds of work this client actually has.
-  const filters = HISTORY_FILTERS.filter((f) => f.value === 'all' || all.some((e) => e.dept === f.value)).map((f) => ({
-    ...f,
-    count: f.value === 'all' ? all.length : all.filter((e) => e.dept === f.value).length,
-  }))
-
-  return (
-    <Card className="lg:col-span-2">
-      <CardHeader title="Work history" hint="Month by month: what was done for this client and who did it" />
-      <div className="flex flex-wrap items-center gap-2 border-y border-ink-100 px-3 py-2.5">
-        <Segmented value={dept} onChange={setDept} items={filters} />
-        <Select small fit value={who} onChange={(e) => setWho(e.target.value)} aria-label="Done by" className="ml-auto">
-          <option value="">Done by anyone</option>
-          {people.map((id) => (
-            <option key={id} value={id}>
-              {emp(id)?.name ?? 'Unknown'}
-            </option>
-          ))}
-        </Select>
-      </div>
-      {shown.length === 0 ? (
-        <Empty
-          icon={<History size={20} />}
-          title={all.length ? 'Nothing matches these filters' : 'No work on record yet'}
-          hint={all.length ? 'Try another kind of work or person.' : 'Filings, one-time jobs and tasks for this client will collect here.'}
-        />
-      ) : (
-        <div className="pb-2">
-          {months.map((m) => {
-            const entries = shown.filter((e) => e.month === m)
-            const doers = [...new Set(entries.map((e) => emp(e.assigneeId)?.name).filter(Boolean))]
-            return (
-              <section key={m}>
-                <header className="flex flex-wrap items-baseline justify-between gap-x-3 bg-ink-50/70 px-5 py-1.5">
-                  <h3 className="text-[13px] font-bold text-ink-800">{periodLabel(m)}</h3>
-                  <p className="text-xs text-ink-500">
-                    {entries.filter((e) => e.done).length} of {entries.length} done · {doers.join(', ')}
-                  </p>
-                </header>
-                <ul className="divide-y divide-ink-100">
-                  {entries.map((e) => (
-                    <li key={e.key}>
-                      <Link to={e.to} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2 hover:bg-ink-50">
-                        <span className="w-24 shrink-0">
-                          <Badge tone={DEPARTMENTS[e.dept].tone}>{e.dept === 'registration' ? 'One-time' : DEPARTMENTS[e.dept].label}</Badge>
-                        </span>
-                        <span className="min-w-40 flex-1">
-                          <span className="block truncate font-semibold text-ink-800">{e.title}</span>
-                          <span className="block truncate text-xs text-ink-500">{e.detail}</span>
-                        </span>
-                        <Badge tone={e.status.tone}>{e.status.label}</Badge>
-                        <span className="w-36 shrink-0 text-[13px]">
-                          <Person emp={emp(e.assigneeId)} size={22} />
-                        </span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )
-          })}
-        </div>
-      )}
-    </Card>
   )
 }
 
@@ -917,6 +824,7 @@ export default function ClientDetail() {
   const updateClient = useStore((s) => s.updateClient)
   const [tab, setTab] = useState<Tab>('overview')
   const [editing, setEditing] = useState(false)
+  const [messaging, setMessaging] = useState(false)
 
   if (!client) {
     return (
@@ -955,6 +863,9 @@ export default function ClientDetail() {
             <span className={cn('absolute top-0.5 left-0.5 size-5 rounded-full bg-white shadow transition-transform', client.active && 'translate-x-4')} />
           </button>
         </label>
+        <Button icon={<MessageCircle size={15} className="text-emerald-600" />} onClick={() => setMessaging(true)}>
+          Send status
+        </Button>
         <Button icon={<Pencil size={15} />} onClick={() => setEditing(true)}>
           Edit
         </Button>
@@ -980,9 +891,10 @@ export default function ClientDetail() {
       {tab === 'fees' && <Fees client={client} />}
       {tab === 'logins' && <Logins client={client} />}
       {tab === 'documents' && <Documents client={client} />}
-      {tab === 'work' && <Work client={client} />}
+      {tab === 'work' && <Work client={client} onMessage={() => setMessaging(true)} />}
 
       {editing && <ClientForm client={client} onClose={() => setEditing(false)} />}
+      {messaging && <StatusMessage client={client} onClose={() => setMessaging(false)} />}
     </>
   )
 }

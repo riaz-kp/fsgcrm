@@ -1,5 +1,6 @@
 import type {
   AttendanceMark,
+  BloodGroup,
   ClientCategory,
   ConsultMode,
   PaymentMode,
@@ -185,6 +186,11 @@ export const ATTENDANCE_ORDER: AttendanceMark[] = ['P', 'H', 'L', 'A']
 export const PAYMENT_MODES: PaymentMode[] = ['UPI', 'Cash', 'Bank transfer', 'Cheque']
 
 export const CONSULT_MODES: ConsultMode[] = ['In person', 'Phone', 'Video']
+
+export const BLOOD_GROUPS: BloodGroup[] = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
+
+/** How the firm signs what goes out to clients. */
+export const FIRM_NAME = 'Fin Savvy Consultors LLP'
 
 export const ROLES: Meta<Role> = {
   ceo: { label: 'CEO', tone: 'blue' },

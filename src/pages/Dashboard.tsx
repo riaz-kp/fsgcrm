@@ -345,7 +345,9 @@ function Workload() {
         {rows.map(({ e, open, overdue }) => (
           <li key={e.id} className="flex items-center gap-3">
             <Avatar name={e.name} hue={e.hue} photo={e?.photo} size={26} />
-            <span className="w-24 truncate text-[13px] font-semibold text-ink-700">{e.name}</span>
+            <Link to={`/team/${e.id}`} className="w-24 truncate text-[13px] font-semibold text-ink-700 hover:text-brand-700 hover:underline">
+              {e.name}
+            </Link>
             <Progress value={(open / max) * 100} tone={overdue ? 'amber' : 'blue'} className="flex-1" />
             <span className="tnum w-14 text-right text-[13px] font-bold text-ink-800">
               {open}

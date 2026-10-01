@@ -85,10 +85,11 @@ function ClientCell({ client, sub }: { client?: Client; sub?: ReactNode }) {
   )
 }
 
+/** Four or five figures across the top of a tracker. */
 function Summary({ items }: { items: Array<{ label: string; value: ReactNode; tone?: Tone }> }) {
   const color: Partial<Record<Tone, string>> = { red: 'text-rose-600', amber: 'text-amber-700', green: 'text-emerald-700' }
   return (
-    <dl className="grid grid-cols-2 divide-ink-100 border-b border-ink-100 sm:grid-cols-4 sm:divide-x">
+    <dl className={cn('grid grid-cols-2 divide-ink-100 border-b border-ink-100 sm:divide-x', items.length === 5 ? 'sm:grid-cols-5' : 'sm:grid-cols-4')}>
       {items.map((it) => (
         <div key={it.label} className="px-5 py-3">
           <dt className="text-xs font-semibold text-ink-500">{it.label}</dt>
@@ -99,7 +100,7 @@ function Summary({ items }: { items: Array<{ label: string; value: ReactNode; to
   )
 }
 
-function TableShell({ minWidth, head, children }: { minWidth: number; head: ReactNode; children: ReactNode }) {
+function TableShell({ minWidth, head, foot, children }: { minWidth: number; head: ReactNode; foot?: ReactNode; children: ReactNode }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm [&_td]:px-2 [&_th]:px-2" style={{ minWidth }}>
@@ -107,8 +108,41 @@ function TableShell({ minWidth, head, children }: { minWidth: number; head: Reac
           <tr>{head}</tr>
         </thead>
         <tbody className="divide-y divide-ink-100">{children}</tbody>
+        {foot && <tfoot className="border-t border-ink-200 bg-ink-50/60">{foot}</tfoot>}
       </table>
     </div>
+  )
+}
+
+/**
+ * The sum of the rows on screen, lined up under the fee columns. `lead` is how many columns come before Fee
+ * and `trail` how many after Received. Where the table has no Balance column the balance is spelt out at the end.
+ */
+function Totals({ lead, trail, count, fee, old = 0, received, balance, balanceColumn }: { lead: number; trail: number; count: number; fee: number; old?: number; received: number; balance: number; balanceColumn?: boolean }) {
+  const cell = 'py-2.5 first:pl-5 last:pr-5'
+  const due = <span className={balance > 0 ? 'text-amber-700' : 'text-ink-500'}>{inr(balance)}</span>
+  return (
+    <tr className="text-[13px] font-bold text-ink-800">
+      <td colSpan={lead} className={cell}>
+        Total <span className="font-medium text-ink-500">· {count === 1 ? '1 row' : `${count} rows`}</span>
+      </td>
+      <td className={cn(cell, 'tnum text-right whitespace-nowrap')}>
+        {inr(fee)}
+        {old > 0 && <p className="text-xs font-semibold text-amber-700">+{inr(old)} old</p>}
+      </td>
+      <td className={cn(cell, 'tnum text-right whitespace-nowrap')}>
+        {/* The amounts above sit inside input boxes; this lines the total up with them. */}
+        <span className="pr-1.5">{inr(received)}</span>
+      </td>
+      {balanceColumn && <td className={cn(cell, 'tnum text-right whitespace-nowrap')}>{due}</td>}
+      <td colSpan={balanceColumn ? trail - 1 : trail} className={cn(cell, 'tnum whitespace-nowrap')}>
+        {!balanceColumn && (
+          <>
+            <span className="font-medium text-ink-500">Balance</span> {due}
+          </>
+        )}
+      </td>
+    </tr>
   )
 }
 
@@ -119,29 +153,40 @@ function useClientMap() {
 
 /* ---------- Filters shared by every tracker ---------- */
 
-/** Search and "assigned to" live here; `?client=` narrows the tracker to one client, e.g. from a client's scope of work. */
+/**
+ * Search and "assigned to" live here. Two of them sit in the address so other pages can link straight to a narrowed
+ * tracker: `?client=` from a client's scope of work, `?assignee=` from a person's page.
+ */
 function useFilters() {
   const [params, setParams] = useSearchParams()
   const clients = useClientMap()
   const [q, setQ] = useState('')
-  const [assignee, setAssignee] = useState('')
   const clientId = params.get('client') ?? ''
+  const assignee = params.get('assignee') ?? ''
   const term = q.trim().toLowerCase()
-  const clearClient = () => setParams({}, { replace: true })
+  const setParam = (key: string, value: string) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (value) next.set(key, value)
+        else next.delete(key)
+        return next
+      },
+      { replace: true },
+    )
 
   return {
     q,
     setQ,
     assignee,
-    setAssignee,
+    setAssignee: (id: string) => setParam('assignee', id),
     client: clients.get(clientId),
     clientId,
-    clearClient,
+    clearClient: () => setParam('client', ''),
     dirty: !!(term || assignee || clientId),
     reset: () => {
       setQ('')
-      setAssignee('')
-      if (clientId) clearClient()
+      if (clientId || assignee) setParams({}, { replace: true })
     },
     /** `party` covers one-time jobs for people who are not clients yet. */
     match: (row: { clientId?: string; assigneeId: string }, party?: string) => {
@@ -338,6 +383,18 @@ function GstTracker() {
               <Th>Remark</Th>
             </>
           }
+          foot={
+            <Totals
+              lead={4}
+              trail={2}
+              balanceColumn
+              count={rows.length}
+              fee={rows.reduce((s, g) => s + g.fee, 0)}
+              old={rows.reduce((s, g) => s + g.prevBalance, 0)}
+              received={rows.reduce((s, g) => s + g.received, 0)}
+              balance={rows.reduce((s, g) => s + Math.max(0, balance(g)), 0)}
+            />
+          }
         >
           {rows.map((g) => {
             const c = clients.get(g.clientId)
@@ -407,24 +464,29 @@ function TdsTracker() {
   const [payment, setPayment] = useState<TdsPayment | ''>('')
   const [quarter, setQuarter] = useState('')
   const [status, setStatus] = useState<SimpleStatus | ''>('')
+  const [owing, setOwing] = useState(false)
   const fy = tds[0]?.fy ?? financialYear()
   const monthLabel = periodLabel(month, true)
   // A month with nothing recorded has not been deposited yet.
   const paymentFor = (t: (typeof tds)[number]) => t.payments[month] ?? 'due'
+  const owed = (t: (typeof tds)[number]) => Math.max(0, t.fee - t.received)
 
   const rows = tds.filter(
     (t) =>
       f.match(t) &&
       (!payment || paymentFor(t) === payment) &&
       // With a quarter picked the status applies to it; without one, to any quarter.
-      (!status || (quarter ? t.quarters[Number(quarter)] === status : t.quarters.includes(status))),
+      (!status || (quarter ? t.quarters[Number(quarter)] === status : t.quarters.includes(status))) &&
+      (!owing || owed(t) > 0),
   )
-  const dirty = f.dirty || !!payment || !!quarter || !!status
+  const feeBalance = rows.reduce((s, t) => s + owed(t), 0)
+  const dirty = f.dirty || !!payment || !!quarter || !!status || owing
   const clear = () => {
     f.reset()
     setPayment('')
     setQuarter('')
     setStatus('')
+    setOwing(false)
   }
   const shownQuarters = quarter ? [Number(quarter)] : [0, 1, 2, 3]
 
@@ -445,6 +507,10 @@ function TdsTracker() {
         <FilterSelect value={payment} onChange={setPayment} label="Payment" any="Any payment" items={PAYMENT} />
         <FilterSelect value={quarter} onChange={setQuarter} label="Quarter" any="All quarters" items={QUARTERS} />
         <FilterSelect value={status} onChange={setStatus} label="Return status" any="Any return status" items={SIMPLE_ITEMS} />
+        <label className="flex h-8 items-center gap-2 px-1 text-[13px] font-semibold text-ink-600">
+          <Tick checked={owing} onChange={setOwing} label="Show only deductors with a fee balance" />
+          Fee balance
+        </label>
       </FilterBar>
       <Summary
         items={[
@@ -452,13 +518,14 @@ function TdsTracker() {
           { label: `${monthLabel} payment due`, value: rows.filter((t) => paymentFor(t) === 'due').length, tone: 'amber' },
           { label: 'Q1 returns done', value: `${rows.filter((t) => isClosed(t.quarters[0])).length} / ${rows.length}` },
           { label: 'Q2 returns done', value: `${rows.filter((t) => isClosed(t.quarters[1])).length} / ${rows.length}` },
+          { label: 'Fee balance', value: inr(feeBalance), tone: 'amber' },
         ]}
       />
       {rows.length === 0 ? (
         <NoMatch onClear={clear} />
       ) : (
         <TableShell
-          minWidth={quarter ? 720 : 960}
+          minWidth={quarter ? 860 : 1100}
           head={
             <>
               <Th>Client</Th>
@@ -467,8 +534,20 @@ function TdsTracker() {
                 <Th key={q}>Q{q + 1} return</Th>
               ))}
               <Th>Assigned</Th>
+              <Th align="right">Fee</Th>
+              <Th align="right">Received</Th>
               <Th>Remark</Th>
             </>
+          }
+          foot={
+            <Totals
+              lead={shownQuarters.length + 3}
+              trail={1}
+              count={rows.length}
+              fee={rows.reduce((s, t) => s + t.fee, 0)}
+              received={rows.reduce((s, t) => s + t.received, 0)}
+              balance={feeBalance}
+            />
           }
         >
           {rows.map((t) => {
@@ -503,6 +582,10 @@ function TdsTracker() {
                 <Td>
                   <AssigneeSelect value={t.assigneeId} onChange={(assigneeId) => updateTds(t.id, { assigneeId })} />
                 </Td>
+                <Td className="tnum text-right text-ink-600">{t.fee ? inr(t.fee) : '—'}</Td>
+                <Td className="text-right">
+                  <Money value={t.received} onChange={(received) => updateTds(t.id, { received })} label="Fee received" />
+                </Td>
                 <Td>
                   <InlineText value={t.remark} onChange={(remark) => updateTds(t.id, { remark })} />
                 </Td>
@@ -512,7 +595,7 @@ function TdsTracker() {
         </TableShell>
       )}
       <Footer shown={rows.length} total={tds.length} dirty={dirty} onClear={clear}>
-        FY {fy} · payment every month, return every quarter. Income tax and TRACES logins sit on each client's page.
+        FY {fy} · payment every month, return every quarter · the fee is what has been billed this year so far. Income tax and TRACES logins sit on each client's page.
       </Footer>
     </Card>
   )
@@ -533,6 +616,8 @@ function ItTracker() {
   // The tabs count what the other filters leave, so the numbers match the table.
   const matched = it.filter((r) => f.match(r) && (!status || r.status === status) && (!owing || r.fee - r.received > 0))
   const rows = kind === 'all' ? matched : matched.filter((r) => r.kind === kind)
+  // A return's fee falls due once it is filed.
+  const feeBalance = rows.reduce((s, r) => s + (done(r) ? Math.max(0, r.fee - r.received) : 0), 0)
   const dirty = f.dirty || kind !== 'all' || !!status || owing
   const clear = () => {
     f.reset()
@@ -568,7 +653,7 @@ function ItTracker() {
           { label: 'Returns', value: rows.length },
           { label: 'Filed or completed', value: `${rows.filter(done).length} / ${rows.length}` },
           { label: 'Pending', value: rows.filter((r) => r.status === 'pending').length, tone: 'amber' },
-          { label: 'Fee balance', value: inr(rows.reduce((s, r) => s + (done(r) ? Math.max(0, r.fee - r.received) : 0), 0)), tone: 'amber' },
+          { label: 'Fee balance', value: inr(feeBalance), tone: 'amber' },
         ]}
       />
       {rows.length === 0 ? (
@@ -588,6 +673,7 @@ function ItTracker() {
               <Th>Remark</Th>
             </>
           }
+          foot={<Totals lead={5} trail={1} count={rows.length} fee={rows.reduce((s, r) => s + r.fee, 0)} received={rows.reduce((s, r) => s + r.received, 0)} balance={feeBalance} />}
         >
           {rows.map((r) => {
             const c = clients.get(r.clientId)
@@ -639,16 +725,22 @@ function AuditTracker() {
   const [kind, setKind] = useState<AuditFiling['kind'] | ''>('')
   const [status, setStatus] = useState<SimpleStatus | ''>('')
   const [recon, setRecon] = useState<'open' | 'done' | ''>('')
+  const [owing, setOwing] = useState(false)
+  // As with returns, an audit's fee falls due once it is signed off; what comes in earlier is an advance.
+  const owed = (a: AuditFiling) => (isClosed(a.status) ? Math.max(0, a.fee - a.received) : 0)
 
   const rows = audits.filter(
-    (a) => f.match(a) && (!kind || a.kind === kind) && (!status || a.status === status) && (!recon || a.reconciliation === (recon === 'done')),
+    (a) =>
+      f.match(a) && (!kind || a.kind === kind) && (!status || a.status === status) && (!recon || a.reconciliation === (recon === 'done')) && (!owing || owed(a) > 0),
   )
-  const dirty = f.dirty || !!kind || !!status || !!recon
+  const feeBalance = rows.reduce((s, a) => s + owed(a), 0)
+  const dirty = f.dirty || !!kind || !!status || !!recon || owing
   const clear = () => {
     f.reset()
     setKind('')
     setStatus('')
     setRecon('')
+    setOwing(false)
   }
 
   return (
@@ -666,20 +758,25 @@ function AuditTracker() {
             { value: 'done', label: 'Reconciled' },
           ]}
         />
+        <label className="flex h-8 items-center gap-2 px-1 text-[13px] font-semibold text-ink-600">
+          <Tick checked={owing} onChange={setOwing} label="Show only audits with a fee balance" />
+          Fee balance
+        </label>
       </FilterBar>
       <Summary
         items={[
           { label: 'Audits', value: rows.length },
           { label: 'Filed or completed', value: `${rows.filter((a) => isClosed(a.status)).length} / ${rows.length}` },
           { label: 'Reconciliation open', value: rows.filter((a) => !a.reconciliation).length, tone: 'amber' },
-          { label: 'Internal audits awaiting data', value: rows.filter((a) => a.kind === 'Internal audit' && !a.dataReceived).length },
+          { label: 'Internal awaiting data', value: rows.filter((a) => a.kind === 'Internal audit' && !a.dataReceived).length },
+          { label: 'Fee balance', value: inr(feeBalance), tone: 'amber' },
         ]}
       />
       {rows.length === 0 ? (
         <NoMatch onClear={clear} />
       ) : (
         <TableShell
-          minWidth={980}
+          minWidth={1120}
           head={
             <>
               <Th>Client</Th>
@@ -689,9 +786,12 @@ function AuditTracker() {
               <Th align="center">Reconciled</Th>
               <Th>Status</Th>
               <Th>Assigned</Th>
+              <Th align="right">Fee</Th>
+              <Th align="right">Received</Th>
               <Th>Remark</Th>
             </>
           }
+          foot={<Totals lead={7} trail={1} count={rows.length} fee={rows.reduce((s, a) => s + a.fee, 0)} received={rows.reduce((s, a) => s + a.received, 0)} balance={feeBalance} />}
         >
           {rows.map((a) => {
             const c = clients.get(a.clientId)
@@ -727,6 +827,10 @@ function AuditTracker() {
                 <Td>
                   <AssigneeSelect value={a.assigneeId} onChange={(assigneeId) => updateAudit(a.id, { assigneeId })} />
                 </Td>
+                <Td className="tnum text-right text-ink-600">{inr(a.fee)}</Td>
+                <Td className="text-right">
+                  <Money value={a.received} onChange={(received) => updateAudit(a.id, { received })} label="Fee received" />
+                </Td>
                 <Td>
                   <InlineText value={a.remark} onChange={(remark) => updateAudit(a.id, { remark })} />
                 </Td>
@@ -735,7 +839,9 @@ function AuditTracker() {
           })}
         </TableShell>
       )}
-      <Footer shown={rows.length} total={audits.length} dirty={dirty} onClear={clear} />
+      <Footer shown={rows.length} total={audits.length} dirty={dirty} onClear={clear}>
+        The fee balance counts audits that are filed or completed; money received before that is an advance.
+      </Footer>
     </Card>
   )
 }
@@ -844,6 +950,7 @@ function ServiceTracker() {
     [services],
   ).filter((s) => f.match(s, `${s.party} ${s.kind} ${s.details ?? ''}`) && (!kind || s.kind === kind) && (!status || s.status === status) && (!late || overdue(s)))
   const open = rows.filter((s) => s.status !== 'completed')
+  const feeBalance = rows.reduce((sum, s) => sum + Math.max(0, s.fee - s.received), 0)
   const dirty = f.dirty || !!kind || !!status || late
   const clear = () => {
     f.reset()
@@ -870,7 +977,7 @@ function ServiceTracker() {
           { label: 'Open jobs', value: open.length },
           { label: 'Past committed date', value: open.filter(overdue).length, tone: 'red' },
           { label: 'Completed', value: rows.length - open.length, tone: 'green' },
-          { label: 'Fee balance', value: inr(rows.reduce((sum, s) => sum + Math.max(0, s.fee - s.received), 0)), tone: 'amber' },
+          { label: 'Fee balance', value: inr(feeBalance), tone: 'amber' },
         ]}
       />
       {rows.length === 0 ? (
@@ -902,6 +1009,7 @@ function ServiceTracker() {
               <Th>Remark</Th>
             </>
           }
+          foot={<Totals lead={5} trail={1} count={rows.length} fee={rows.reduce((sum, s) => sum + s.fee, 0)} received={rows.reduce((sum, s) => sum + s.received, 0)} balance={feeBalance} />}
         >
           {rows.map((s) => (
             <tr key={s.id}>
