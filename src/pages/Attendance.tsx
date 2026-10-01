@@ -227,25 +227,27 @@ export function AttendanceDetail() {
 
       <div className="mb-5 flex flex-wrap items-center gap-4">
         <Avatar name={emp.name} hue={emp.hue} photo={emp.photo} size={52} />
-        <div className="min-w-0 flex-1">
+        <div className="min-w-48 flex-1">
           <h1 className="truncate text-[22px] leading-tight font-extrabold tracking-tight text-ink-900">{emp.name}</h1>
           <p className="mt-0.5 text-sm text-ink-500">
             {emp.title}
             {emp.joined && ` · joined ${fmtDate(emp.joined, true)}`}
           </p>
         </div>
-        {head && (
-          <Select fit value={emp.id} onChange={(e) => navigate(`/attendance/${e.target.value}`)} aria-label="Show another person">
-            {employees.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.name}
-              </option>
-            ))}
-          </Select>
-        )}
-        <Link to={`/team/${emp.id}`}>
-          <Button icon={<UserRound size={15} />}>Profile</Button>
-        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          {head && (
+            <Select fit value={emp.id} onChange={(e) => navigate(`/attendance/${e.target.value}`)} aria-label="Show another person">
+              {employees.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.name}
+                </option>
+              ))}
+            </Select>
+          )}
+          <Link to={`/team/${emp.id}`}>
+            <Button icon={<UserRound size={15} />}>Profile</Button>
+          </Link>
+        </div>
       </div>
 
       <AttendancePanel emp={emp} canEdit={head} />

@@ -317,7 +317,7 @@ export default function EmployeeDetail() {
 
       <div className="mb-5 flex flex-wrap items-center gap-4">
         <Avatar name={emp.name} hue={emp.hue} photo={emp.photo} size={56} />
-        <div className="min-w-0 flex-1">
+        <div className="min-w-48 flex-1">
           <h1 className="truncate text-[22px] leading-tight font-extrabold tracking-tight text-ink-900">{emp.name}</h1>
           <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-500">
             <Badge tone={ROLES[emp.role].tone}>{ROLES[emp.role].label}</Badge>
@@ -326,7 +326,7 @@ export default function EmployeeDetail() {
           </p>
         </div>
         {head && (
-          <>
+          <div className="flex flex-wrap items-center gap-3">
             <Select fit value={emp.id} onChange={(e) => navigate(`/team/${e.target.value}`)} aria-label="Show another person">
               {employees.map((e) => (
                 <option key={e.id} value={e.id}>
@@ -337,7 +337,7 @@ export default function EmployeeDetail() {
             <Button icon={<Pencil size={15} />} onClick={() => setEditing(true)}>
               Edit
             </Button>
-          </>
+          </div>
         )}
       </div>
 

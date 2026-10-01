@@ -58,13 +58,13 @@ export default function Clients() {
               className="h-9 w-full rounded-lg bg-white pr-3 pl-9 text-sm ring-1 ring-ink-200 ring-inset placeholder:text-ink-400 focus:ring-2 focus:ring-brand-500 focus:outline-none"
             />
           </div>
-          <Select value={category} onChange={(e) => setCategory(e.target.value as ClientCategory | '')} fit aria-label="Category">
+          <Select value={category} onChange={(e) => setCategory(e.target.value as ClientCategory | '')} fit aria-label="Category" className="max-sm:min-w-0 max-sm:flex-1 max-sm:basis-[40%]">
             <option value="">All categories</option>
             {CATEGORIES.map((c) => (
               <option key={c}>{c}</option>
             ))}
           </Select>
-          <Select value={scope} onChange={(e) => setScope(e.target.value as ScopeKey | '')} fit aria-label="Scope">
+          <Select value={scope} onChange={(e) => setScope(e.target.value as ScopeKey | '')} fit aria-label="Scope" className="max-sm:min-w-0 max-sm:flex-1 max-sm:basis-[40%]">
             <option value="">Any scope</option>
             {SCOPES.map((s) => (
               <option key={s.key} value={s.key}>
@@ -102,8 +102,8 @@ export default function Clients() {
             }
           />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[820px] text-sm">
+          <div className="@container overflow-x-auto">
+            <table className="stack w-full min-w-[820px] text-sm">
               <thead className="border-b border-ink-100 bg-ink-50/60">
                 <tr>
                   <Th>Client</Th>
@@ -135,18 +135,22 @@ export default function Clients() {
                         </div>
                       </div>
                     </Td>
-                    <Td>
+                    <Td label="Category">
                       <Badge tone={CATEGORY_TONE[c.category]}>{c.category}</Badge>
                     </Td>
-                    <Td className="text-ink-600">{c.profession ?? c.business}</Td>
-                    <Td className="text-ink-600">{c.place}</Td>
-                    <Td className="text-ink-600">
+                    <Td label="Business / profession" className="text-ink-600">
+                      {c.profession ?? c.business}
+                    </Td>
+                    <Td label="Place" className="text-ink-600">
+                      {c.place}
+                    </Td>
+                    <Td label="Phone" className="text-ink-600">
                       <span className="flex items-center gap-2">
                         <PhoneLink phone={c.phone} />
                         <WhatsAppLink number={c.whatsapp} compact />
                       </span>
                     </Td>
-                    <Td>
+                    <Td label="Scope of work" className="col-span-full">
                       <ScopeChips scopes={c.scopes} max={4} />
                     </Td>
                   </tr>

@@ -56,7 +56,7 @@ export default function WorkHistory({ entries, by, hint, recent, className }: { 
       <CardHeader title="Work history" hint={hint} />
       <div className="flex flex-wrap items-center gap-2 border-y border-ink-100 px-3 py-2.5">
         <Segmented value={dept} onChange={setDept} items={filters} />
-        <Select small fit value={pick} onChange={(e) => setPick(e.target.value)} aria-label={by === 'person' ? 'Done by' : 'Client'} className="ml-auto max-w-56">
+        <Select small fit value={pick} onChange={(e) => setPick(e.target.value)} aria-label={by === 'person' ? 'Done by' : 'Client'} className="max-sm:w-full sm:ml-auto sm:max-w-56">
           <option value="">{by === 'person' ? 'Done by anyone' : 'For any client'}</option>
           {choices.map((c) => (
             <option key={c.id} value={c.id}>
@@ -91,21 +91,22 @@ export default function WorkHistory({ entries, by, hint, recent, className }: { 
                 <ul className="divide-y divide-ink-100">
                   {list.map((e) => (
                     <li key={e.key}>
-                      <Link to={e.to} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2 hover:bg-ink-50">
-                        <span className="w-24 shrink-0">
+                      {/* On a phone the title takes the first line and the badges and name sit under it. */}
+                      <Link to={e.to} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-5 py-2 hover:bg-ink-50">
+                        <span className="shrink-0 sm:w-24">
                           <Badge tone={DEPARTMENTS[e.dept].tone}>{e.dept === 'registration' ? 'One-time' : DEPARTMENTS[e.dept].label}</Badge>
                         </span>
-                        <span className="min-w-40 flex-1">
+                        <span className="min-w-0 flex-1 max-sm:order-first max-sm:basis-full">
                           <span className="block truncate font-semibold text-ink-800">{e.title}</span>
                           <span className="block truncate text-xs text-ink-500">{e.detail}</span>
                         </span>
                         <Badge tone={e.status.tone}>{e.status.label}</Badge>
                         {by === 'person' ? (
-                          <span className="w-36 shrink-0 text-[13px]">
+                          <span className="min-w-0 text-[13px] max-sm:ml-auto sm:w-36 sm:shrink-0">
                             <Person emp={emp(e.assigneeId)} size={22} />
                           </span>
                         ) : (
-                          <span className="w-48 shrink-0 truncate text-[13px] font-medium text-ink-700" title={e.party || undefined}>
+                          <span className="min-w-0 truncate text-[13px] font-medium text-ink-700 max-sm:flex-1 max-sm:text-right sm:w-48 sm:shrink-0" title={e.party || undefined}>
                             {e.party || <span className="font-normal text-ink-400">Internal</span>}
                           </span>
                         )}

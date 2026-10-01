@@ -112,7 +112,7 @@ function Slot({ c }: { c: Consultation }) {
         <p className="tnum text-[15px] leading-tight font-extrabold text-ink-900">{fmtTime(c.time)}</p>
         <p className="text-xs text-ink-500">{c.durationMin} min</p>
       </div>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-48 flex-1">
         <p className="font-semibold text-ink-900">
           {c.clientId ? (
             <Link to={`/clients/${c.clientId}`} className="hover:text-brand-700 hover:underline">
@@ -126,22 +126,25 @@ function Slot({ c }: { c: Consultation }) {
         <p className="text-sm text-ink-700">{c.topic}</p>
         {c.notes && <p className="mt-0.5 text-[13px] text-ink-500">{c.notes}</p>}
       </div>
-      <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-ink-600">
-        {MODE_ICON[c.mode]}
-        {c.mode}
-      </span>
-      {open ? (
-        <span className="flex gap-1">
-          <Button size="sm" icon={<Check size={14} />} onClick={() => updateConsultation(c.id, { status: 'done' })}>
-            Done
-          </Button>
-          <IconButton label="Cancel consultation" onClick={() => updateConsultation(c.id, { status: 'cancelled' })} className="hover:text-rose-600">
-            <X size={16} />
-          </IconButton>
+      {/* Wraps under the details on a phone, lined up with them rather than with the time. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 max-sm:w-full max-sm:pl-24">
+        <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-ink-600">
+          {MODE_ICON[c.mode]}
+          {c.mode}
         </span>
-      ) : (
-        <Badge tone={c.status === 'done' ? 'green' : 'neutral'}>{c.status === 'done' ? 'Done' : 'Cancelled'}</Badge>
-      )}
+        {open ? (
+          <span className="flex gap-1">
+            <Button size="sm" icon={<Check size={14} />} onClick={() => updateConsultation(c.id, { status: 'done' })}>
+              Done
+            </Button>
+            <IconButton label="Cancel consultation" onClick={() => updateConsultation(c.id, { status: 'cancelled' })} className="hover:text-rose-600">
+              <X size={16} />
+            </IconButton>
+          </span>
+        ) : (
+          <Badge tone={c.status === 'done' ? 'green' : 'neutral'}>{c.status === 'done' ? 'Done' : 'Cancelled'}</Badge>
+        )}
+      </div>
     </li>
   )
 }

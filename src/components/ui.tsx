@@ -156,8 +156,9 @@ export function Card({ className, children }: { className?: string; children: Re
 
 export function CardHeader({ title, hint, action }: { title: string; hint?: ReactNode; action?: ReactNode }) {
   return (
-    <header className="flex items-center justify-between gap-3 px-5 pt-4 pb-3">
-      <div className="min-w-0">
+    <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-5 pt-4 pb-3">
+      {/* The title keeps a readable width; on a narrow card the action drops below it. */}
+      <div className="min-w-40 flex-1">
         <h2 className="text-[15px] font-bold text-ink-900">{title}</h2>
         {hint && <p className="mt-0.5 truncate text-[13px] text-ink-500">{hint}</p>}
       </div>
@@ -211,7 +212,7 @@ export function Modal({ title, subtitle, onClose, children, footer, wide }: { ti
           </IconButton>
         </header>
         <div className="scroll-thin overflow-y-auto px-5 py-4">{children}</div>
-        {footer && <footer className="flex items-center justify-end gap-2 border-t border-ink-100 px-5 py-3">{footer}</footer>}
+        {footer && <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-ink-100 px-5 py-3">{footer}</footer>}
       </div>
     </div>
   )
@@ -325,7 +326,7 @@ export function Segmented<K extends string>({
   items: Array<{ value: K; label: ReactNode; count?: number }>
 }) {
   return (
-    <div className="inline-flex max-w-full overflow-x-auto rounded-lg bg-ink-100 p-0.5" role="tablist">
+    <div className="scroll-none inline-flex max-w-full overflow-x-auto rounded-lg bg-ink-100 p-0.5" role="tablist">
       {items.map((it) => (
         <button
           key={it.value}
@@ -385,6 +386,11 @@ export function Th({ children, align = 'left', className }: { children?: ReactNo
   )
 }
 
-export function Td({ children, className }: { children?: ReactNode; className?: string }) {
-  return <td className={cn('px-3 py-2.5 align-middle first:pl-5 last:pr-5', className)}>{children}</td>
+/** `label` is the column's name, shown above the value when a `stack` table collapses into cards. */
+export function Td({ children, className, label }: { children?: ReactNode; className?: string; label?: string }) {
+  return (
+    <td data-label={label} className={cn('px-3 py-2.5 align-middle first:pl-5 last:pr-5', className)}>
+      {children}
+    </td>
+  )
 }

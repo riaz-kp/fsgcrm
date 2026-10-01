@@ -417,8 +417,8 @@ export default function Leads() {
         <Board leads={leads} onOpen={(id) => setParams({ open: id })} />
       ) : (
         <Card>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-sm">
+          <div className="@container overflow-x-auto">
+            <table className="stack w-full min-w-[860px] text-sm">
               <thead className="border-b border-ink-100 bg-ink-50/60">
                 <tr>
                   <Th>Lead</Th>
@@ -439,19 +439,23 @@ export default function Leads() {
                         <WhatsAppLink number={l.whatsapp} compact />
                       </p>
                     </Td>
-                    <Td>
+                    <Td label="Enquired about">
                       <ScopeChips scopes={l.scopes} />
                     </Td>
-                    <Td>
+                    <Td label="Status">
                       <Badge tone={LEAD_STATUS[l.status].tone} dot>
                         {LEAD_STATUS[l.status].label}
                       </Badge>
                     </Td>
-                    <Td className="text-[13px]">{isOpen(l) && l.nextFollowUp ? <Due date={l.nextFollowUp} /> : <span className="text-ink-400">—</span>}</Td>
-                    <Td>
+                    <Td label="Follow-up" className="text-[13px]">
+                      {isOpen(l) && l.nextFollowUp ? <Due date={l.nextFollowUp} /> : <span className="text-ink-400">—</span>}
+                    </Td>
+                    <Td label="Handled by">
                       <Person emp={emp(l.ownerId)} size={22} />
                     </Td>
-                    <Td className="max-w-64 truncate text-[13px] text-ink-600">{l.remarks[l.remarks.length - 1]?.text}</Td>
+                    <Td label="Last remark" className="col-span-full text-[13px] text-ink-600 @3xl:max-w-64 @3xl:truncate">
+                      {l.remarks[l.remarks.length - 1]?.text}
+                    </Td>
                   </tr>
                 ))}
               </tbody>

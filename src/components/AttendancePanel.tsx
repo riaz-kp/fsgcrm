@@ -102,8 +102,8 @@ export function AttendancePanel({ emp, canEdit }: { emp: Employee; canEdit: bool
       <div className="grid gap-4 lg:grid-cols-5">
         <Card className="lg:col-span-3 lg:self-start">
           <CardHeader title="Day by day" hint={canEdit ? 'Change a status or a time and it is saved' : 'Marked by your heads'} />
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[520px] text-sm">
+          <div className="@container overflow-x-auto">
+            <table className="stack w-full min-w-[520px] text-sm">
               <thead className="border-y border-ink-100 bg-ink-50/60">
                 <tr>
                   <Th>Date</Th>
@@ -124,7 +124,7 @@ export function AttendancePanel({ emp, canEdit }: { emp: Employee; canEdit: bool
                         <Td className="tnum whitespace-nowrap">
                           {fmtDate(d.date)} <span className="text-xs">{d.weekdayShort}</span>
                         </Td>
-                        <td colSpan={4} className="px-3 py-2.5 text-[13px]">
+                        <td data-label="Status" colSpan={4} className="px-3 py-2.5 text-[13px]">
                           Sunday
                         </td>
                       </tr>
@@ -135,7 +135,7 @@ export function AttendancePanel({ emp, canEdit }: { emp: Employee; canEdit: bool
                         <span className={cn('font-semibold', d.sunday && !entry ? 'text-ink-400' : 'text-ink-800')}>{fmtDate(d.date)}</span>{' '}
                         <span className={cn('text-xs', d.sunday ? 'text-rose-400' : 'text-ink-500')}>{d.date === today ? 'Today' : d.weekdayShort}</span>
                       </Td>
-                      <Td>
+                      <Td label="Status">
                         {canEdit ? (
                           <StatusSelect
                             label={`Attendance on ${d.date}`}
@@ -151,20 +151,24 @@ export function AttendancePanel({ emp, canEdit }: { emp: Employee; canEdit: bool
                       </Td>
                       {canEdit ? (
                         <>
-                          <Td>
+                          <Td label="Time in">
                             <TimeInput label={`Time in on ${d.date}`} value={entry?.in} disabled={off} onChange={(v) => setAttendanceTime(emp.id, d.date, { in: v })} />
                           </Td>
-                          <Td>
+                          <Td label="Time out">
                             <TimeInput label={`Time out on ${d.date}`} value={entry?.out} disabled={off} onChange={(v) => setAttendanceTime(emp.id, d.date, { out: v })} />
                           </Td>
                         </>
                       ) : (
                         <>
-                          <Td className="tnum text-ink-700">{entry?.in ? fmtTime(entry.in) : <span className="text-ink-300">—</span>}</Td>
-                          <Td className="tnum text-ink-700">{entry?.out ? fmtTime(entry.out) : <span className="text-ink-300">—</span>}</Td>
+                          <Td label="Time in" className="tnum text-ink-700">
+                            {entry?.in ? fmtTime(entry.in) : <span className="text-ink-300">—</span>}
+                          </Td>
+                          <Td label="Time out" className="tnum text-ink-700">
+                            {entry?.out ? fmtTime(entry.out) : <span className="text-ink-300">—</span>}
+                          </Td>
                         </>
                       )}
-                      <Td className="tnum text-right font-semibold whitespace-nowrap text-ink-700">
+                      <Td label="Hours" className="tnum text-right font-semibold whitespace-nowrap text-ink-700">
                         {minutes ? fmtDuration(minutes) : <span className="font-normal text-ink-300">{entry?.in && !entry.out ? 'at work' : '—'}</span>}
                       </Td>
                     </tr>

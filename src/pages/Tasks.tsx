@@ -438,7 +438,7 @@ export default function Tasks() {
               className="h-9 w-full rounded-lg bg-white pr-3 pl-9 text-sm ring-1 ring-ink-200 ring-inset placeholder:text-ink-400 focus:ring-2 focus:ring-brand-500 focus:outline-none"
             />
           </div>
-          <Select value={dept} onChange={(e) => setDept(e.target.value as Department | '')} fit aria-label="Work head">
+          <Select value={dept} onChange={(e) => setDept(e.target.value as Department | '')} fit aria-label="Work head" className="max-sm:min-w-0 max-sm:flex-1 max-sm:basis-[40%]">
             <option value="">All work heads</option>
             {options(DEPARTMENTS).map((d) => (
               <option key={d.value} value={d.value}>
@@ -447,7 +447,7 @@ export default function Tasks() {
             ))}
           </Select>
           {head && mineOnly === 'all' && (
-            <Select value={assignee} onChange={(e) => setAssignee(e.target.value)} fit aria-label="Assignee">
+            <Select value={assignee} onChange={(e) => setAssignee(e.target.value)} fit aria-label="Assignee" className="max-sm:min-w-0 max-sm:flex-1 max-sm:basis-[40%]">
               <option value="">Anyone</option>
               {employees.map((e) => (
                 <option key={e.id} value={e.id}>
@@ -462,8 +462,8 @@ export default function Tasks() {
           rows.length === 0 ? (
             <Empty icon={<ListTodo size={20} />} title="No tasks here" hint={head ? 'Nothing matches these filters.' : 'Nothing is assigned to you in this view.'} />
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[880px] text-sm">
+            <div className="@container overflow-x-auto">
+              <table className="stack w-full min-w-[880px] text-sm">
                 <thead className="border-b border-ink-100 bg-ink-50/60">
                   <tr>
                     <Th>Task</Th>
@@ -495,22 +495,22 @@ export default function Tasks() {
                           </div>
                         </div>
                       </Td>
-                      <Td>
+                      <Td label="Work head">
                         <Badge tone={DEPARTMENTS[t.department].tone}>{DEPARTMENTS[t.department].label}</Badge>
                       </Td>
-                      <Td>
+                      <Td label="Assigned to">
                         <Person emp={emp(t.assigneeId)} />
                       </Td>
-                      <Td className="text-[13px]">
+                      <Td label="Due" className="text-[13px]">
                         <Due date={t.dueDate} done={t.status === 'completed'} />
                       </Td>
-                      <Td>
-                        <div className="flex w-32 items-center gap-2">
+                      <Td label="Progress">
+                        <div className="flex w-32 max-w-full items-center gap-2">
                           <Progress value={t.progress} tone={progressTone(t)} className="flex-1" />
                           <span className="tnum w-9 text-right text-xs font-semibold text-ink-600">{t.progress}%</span>
                         </div>
                       </Td>
-                      <Td>
+                      <Td label="Status">
                         <Badge tone={TASK_STATUS[t.status].tone} dot>
                           {TASK_STATUS[t.status].label}
                         </Badge>

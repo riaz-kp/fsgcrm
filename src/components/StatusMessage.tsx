@@ -45,7 +45,8 @@ export default function StatusMessage({ client, onClose }: { client: Client; onC
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          {/* Three buttons do not fit a phone; the close button at the top does the same job there. */}
+          <Button variant="ghost" onClick={onClose} className="max-sm:hidden">
             Cancel
           </Button>
           <Button icon={copied ? <Check size={15} className="text-emerald-600" /> : <Copy size={15} />} onClick={copy} disabled={!text.trim()}>

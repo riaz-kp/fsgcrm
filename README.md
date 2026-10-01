@@ -42,6 +42,19 @@ A person's personal and family details, work and attendance are shown to the hea
 and to that person; everyone else sees only what they do at the firm and how to
 reach them. Only heads can edit them.
 
+## Screen sizes
+
+The app adapts from a phone to a wide monitor:
+
+- **Navigation** — a slide-in menu below 1024px, a rail of icons from 1024px to 1280px, and the full
+  sidebar above that. On a wide screen the button beside the search box collapses the sidebar to the rail
+  for more room; the choice is remembered.
+- **Tables** — where there is no room for columns (a phone, a tablet held upright), each row becomes a
+  card with the column names as labels. This goes by the width of the box the table sits in, so it is
+  set per table with the `stack` class and a `label` on each cell; see the note in `src/index.css`.
+- **Everything else** — page headers, filters, forms and dialogs wrap or stack as the screen narrows.
+  On touch screens form fields use 16px text so iOS does not zoom in when one is tapped.
+
 ## Where things live
 
 - `src/data/seed.ts` — sample data. Staff names are real; every client and login is invented. Staff dates of birth and joining are placeholders, and their address, blood group, qualification and family details are left empty for them to fill in

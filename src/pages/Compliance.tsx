@@ -18,7 +18,7 @@ function AssigneeSelect({ value, onChange }: { value: string; onChange: (id: str
       value={value}
       onChange={(e) => onChange(e.target.value)}
       aria-label="Assigned to"
-      className="chevron h-7 max-w-24 appearance-none truncate rounded-md bg-transparent pr-5 pl-1.5 text-[13px] font-medium text-ink-700 hover:bg-ink-100 focus:ring-2 focus:ring-brand-500 focus:outline-none"
+      className="chevron h-7 max-w-24 appearance-none truncate rounded-md bg-transparent pr-5 pl-1.5 text-[13px] font-medium text-ink-700 hover:bg-ink-100 focus:ring-2 focus:ring-brand-500 focus:outline-none @max-3xl:-ml-1.5 @max-3xl:max-w-full"
     >
       {employees.map((e) => (
         <option key={e.id} value={e.id}>
@@ -36,7 +36,7 @@ function InlineText({ value, onChange, placeholder = 'Add remark' }: { value: st
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       aria-label="Remark"
-      className="h-7 w-full min-w-28 rounded-md bg-transparent px-1.5 text-[13px] text-ink-700 placeholder:text-ink-300 hover:bg-ink-100 focus:bg-white focus:ring-2 focus:ring-brand-500 focus:outline-none"
+      className="h-7 w-full min-w-28 rounded-md bg-transparent px-1.5 text-[13px] text-ink-700 placeholder:text-ink-300 hover:bg-ink-100 focus:bg-white focus:ring-2 focus:ring-brand-500 focus:outline-none @max-3xl:bg-white @max-3xl:ring-1 @max-3xl:ring-ink-200 @max-3xl:ring-inset"
     />
   )
 }
@@ -50,7 +50,7 @@ function Money({ value, onChange, label }: { value: number; onChange: (n: number
       value={value}
       onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))}
       aria-label={label}
-      className="tnum h-7 w-[68px] rounded-md bg-transparent px-1.5 text-right text-[13px] font-medium text-ink-800 hover:bg-ink-100 focus:bg-white focus:ring-2 focus:ring-brand-500 focus:outline-none"
+      className="tnum h-7 w-[68px] rounded-md bg-transparent px-1.5 text-right text-[13px] font-medium text-ink-800 hover:bg-ink-100 focus:bg-white focus:ring-2 focus:ring-brand-500 focus:outline-none @max-3xl:w-24 @max-3xl:bg-white @max-3xl:text-left @max-3xl:ring-1 @max-3xl:ring-ink-200 @max-3xl:ring-inset"
     />
   )
 }
@@ -77,10 +77,10 @@ function ClientCell({ client, sub }: { client?: Client; sub?: ReactNode }) {
   if (!client) return <span className="text-ink-400">Unknown client</span>
   return (
     <div className="min-w-0">
-      <Link to={`/clients/${client.id}`} title={client.name} className="block max-w-40 truncate font-semibold 2xl:max-w-64 text-ink-900 hover:text-brand-700 hover:underline">
+      <Link to={`/clients/${client.id}`} title={client.name} className="block truncate font-semibold text-ink-900 hover:text-brand-700 hover:underline @3xl:max-w-40 @3xl:2xl:max-w-64">
         {client.name}
       </Link>
-      {sub && <p className="tnum max-w-40 truncate text-xs text-ink-500 2xl:max-w-64">{sub}</p>}
+      {sub && <p className="tnum truncate text-xs text-ink-500 @3xl:max-w-40 @3xl:2xl:max-w-64">{sub}</p>}
     </div>
   )
 }
@@ -102,8 +102,8 @@ function Summary({ items }: { items: Array<{ label: string; value: ReactNode; to
 
 function TableShell({ minWidth, head, foot, children }: { minWidth: number; head: ReactNode; foot?: ReactNode; children: ReactNode }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm [&_td]:px-2 [&_th]:px-2" style={{ minWidth }}>
+    <div className="@container overflow-x-auto">
+      <table className="stack w-full text-sm [&_td]:px-2 [&_th]:px-2" style={{ minWidth }}>
         <thead className="border-b border-ink-100 bg-ink-50/60">
           <tr>{head}</tr>
         </thead>
@@ -126,19 +126,25 @@ function Totals({ lead, trail, count, fee, old = 0, received, balance, balanceCo
       <td colSpan={lead} className={cell}>
         Total <span className="font-medium text-ink-500">· {count === 1 ? '1 row' : `${count} rows`}</span>
       </td>
-      <td className={cn(cell, 'tnum text-right whitespace-nowrap')}>
+      <td data-label="Fee" className={cn(cell, 'tnum text-right whitespace-nowrap')}>
         {inr(fee)}
         {old > 0 && <p className="text-xs font-semibold text-amber-700">+{inr(old)} old</p>}
       </td>
-      <td className={cn(cell, 'tnum text-right whitespace-nowrap')}>
+      <td data-label="Received" className={cn(cell, 'tnum text-right whitespace-nowrap')}>
         {/* The amounts above sit inside input boxes; this lines the total up with them. */}
-        <span className="pr-1.5">{inr(received)}</span>
+        <span className="@3xl:pr-1.5">{inr(received)}</span>
       </td>
-      {balanceColumn && <td className={cn(cell, 'tnum text-right whitespace-nowrap')}>{due}</td>}
-      <td colSpan={balanceColumn ? trail - 1 : trail} className={cn(cell, 'tnum whitespace-nowrap')}>
+      {balanceColumn && (
+        <td data-label="Balance" className={cn(cell, 'tnum text-right whitespace-nowrap')}>
+          {due}
+        </td>
+      )}
+      {/* As cards, the label above the figure already says "Balance". */}
+      <td data-label="Balance" colSpan={balanceColumn ? trail - 1 : trail} className={cn(cell, 'tnum whitespace-nowrap')}>
         {!balanceColumn && (
           <>
-            <span className="font-medium text-ink-500">Balance</span> {due}
+            <span className="font-medium text-ink-500 @max-3xl:hidden">Balance </span>
+            {due}
           </>
         )}
       </td>
@@ -208,12 +214,12 @@ function FilterBar({ f, lead, children }: { f: Filters; lead?: ReactNode; childr
     <div className="border-b border-ink-100">
       <div className="flex flex-wrap items-center gap-2 p-3">
         {lead}
-        <div className="relative min-w-44 flex-1">
+        <div className="relative min-w-44 flex-1 max-sm:basis-full">
           <Search size={14} className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-ink-400" />
           <Input small value={f.q} onChange={(e) => f.setQ(e.target.value)} placeholder="Search client, code, place…" aria-label="Search this tracker" className="pl-8" />
         </div>
         {children}
-        <Select small fit value={f.assignee} onChange={(e) => f.setAssignee(e.target.value)} aria-label="Assigned to">
+        <Select small fit value={f.assignee} onChange={(e) => f.setAssignee(e.target.value)} aria-label="Assigned to" className="max-sm:min-w-0 max-sm:flex-1 max-sm:basis-[40%]">
           <option value="">Assigned to anyone</option>
           {employees.map((e) => (
             <option key={e.id} value={e.id}>
@@ -246,7 +252,7 @@ function FilterBar({ f, lead, children }: { f: Filters; lead?: ReactNode; childr
 /** One of the tracker's own filters: a compact select whose first option means "no filter". */
 function FilterSelect<K extends string>({ value, onChange, label, any, items }: { value: K | ''; onChange: (v: K | '') => void; label: string; any: string; items: Array<{ value: K; label: string }> }) {
   return (
-    <Select small fit value={value} onChange={(e) => onChange(e.target.value as K | '')} aria-label={label}>
+    <Select small fit value={value} onChange={(e) => onChange(e.target.value as K | '')} aria-label={label} className="max-sm:min-w-0 max-sm:flex-1 max-sm:basis-[40%]">
       <option value="">{any}</option>
       {items.map((o) => (
         <option key={o.value} value={o.value}>
@@ -333,7 +339,7 @@ function GstTracker() {
       <FilterBar
         f={f}
         lead={
-          <Select small fit value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Return period" className="font-semibold">
+          <Select small fit value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Return period" className="font-semibold max-sm:w-full">
             {periods.map((p) => (
               <option key={p} value={p}>
                 {periodLabel(p)}
@@ -411,24 +417,24 @@ function GstTracker() {
                     }
                   />
                 </Td>
-                <Td>
+                <Td label="GSTR-1">
                   <StatusSelect label="GSTR-1 status" value={g.gstr1} options={options(GST_STATUS)} onChange={(gstr1) => updateGst(g.id, { gstr1 })} />
                 </Td>
-                <Td>
+                <Td label="GSTR-3B">
                   <StatusSelect label="GSTR-3B status" value={g.gstr3b} options={options(GST_STATUS)} onChange={(gstr3b) => updateGst(g.id, { gstr3b })} />
                 </Td>
-                <Td>
+                <Td label="Assigned">
                   <AssigneeSelect value={g.assigneeId} onChange={(assigneeId) => updateGst(g.id, { assigneeId })} />
                 </Td>
-                <Td className="tnum text-right whitespace-nowrap text-ink-600">
+                <Td label="Fee" className="tnum text-right whitespace-nowrap text-ink-600">
                   {g.fee ? inr(g.fee) : '—'}
                   {g.prevBalance > 0 && <p className="text-xs text-amber-700">+{inr(g.prevBalance)} old</p>}
                 </Td>
-                <Td className="text-right">
+                <Td label="Received" className="text-right">
                   <Money value={g.received} onChange={(received) => updateGst(g.id, { received })} label="Fee received" />
                 </Td>
-                <Td className={cn('tnum text-right font-bold', bal > 0 ? 'text-amber-700' : 'text-ink-400')}>{bal > 0 ? inr(bal) : '—'}</Td>
-                <Td>
+                <Td label="Balance" className={cn('tnum text-right font-bold', bal > 0 ? 'text-amber-700' : 'text-ink-400')}>{bal > 0 ? inr(bal) : '—'}</Td>
+                <Td label="Remark" className="col-span-full">
                   <InlineText value={g.remark} onChange={(remark) => updateGst(g.id, { remark })} />
                 </Td>
               </tr>
@@ -495,7 +501,7 @@ function TdsTracker() {
       <FilterBar
         f={f}
         lead={
-          <Select small fit value={month} onChange={(e) => setMonth(e.target.value)} aria-label="Payment month" className="font-semibold">
+          <Select small fit value={month} onChange={(e) => setMonth(e.target.value)} aria-label="Payment month" className="font-semibold max-sm:w-full">
             {months.map((m) => (
               <option key={m} value={m}>
                 {periodLabel(m)}
@@ -557,7 +563,7 @@ function TdsTracker() {
                 <Td>
                   <ClientCell client={c} sub={<>TAN {c?.tan}</>} />
                 </Td>
-                <Td>
+                <Td label={`${monthLabel} payment`}>
                   <StatusSelect
                     label={`TDS payment for ${monthLabel}`}
                     value={paymentFor(t)}
@@ -566,7 +572,7 @@ function TdsTracker() {
                   />
                 </Td>
                 {shownQuarters.map((i) => (
-                  <Td key={i}>
+                  <Td label={`Q${i + 1} return`} key={i}>
                     <StatusSelect
                       label={`Q${i + 1} return`}
                       value={t.quarters[i]}
@@ -579,14 +585,14 @@ function TdsTracker() {
                     />
                   </Td>
                 ))}
-                <Td>
+                <Td label="Assigned">
                   <AssigneeSelect value={t.assigneeId} onChange={(assigneeId) => updateTds(t.id, { assigneeId })} />
                 </Td>
-                <Td className="tnum text-right text-ink-600">{t.fee ? inr(t.fee) : '—'}</Td>
-                <Td className="text-right">
+                <Td label="Fee" className="tnum text-right text-ink-600">{t.fee ? inr(t.fee) : '—'}</Td>
+                <Td label="Received" className="text-right">
                   <Money value={t.received} onChange={(received) => updateTds(t.id, { received })} label="Fee received" />
                 </Td>
-                <Td>
+                <Td label="Remark" className="col-span-full">
                   <InlineText value={t.remark} onChange={(remark) => updateTds(t.id, { remark })} />
                 </Td>
               </tr>
@@ -682,23 +688,23 @@ function ItTracker() {
                 <Td>
                   <ClientCell client={c} sub={<>{c?.category}{c?.profession ? ` · ${c.profession}` : ''}</>} />
                 </Td>
-                <Td>
+                <Td label="Type">
                   <Badge tone={r.kind === 'audit' ? 'amber' : 'neutral'}>{r.kind === 'audit' ? 'Audit case' : 'Non-audit'}</Badge>
                 </Td>
-                <Td className="text-[13px]">
+                <Td label="Due" className="text-[13px]">
                   <Due date={itDueDate(r, c)} done={done(r)} compact />
                 </Td>
-                <Td>
+                <Td label="Status">
                   <StatusSelect label="Return status" value={r.status} options={SIMPLE_ITEMS} onChange={(status) => updateIt(r.id, { status })} />
                 </Td>
-                <Td>
+                <Td label="Assigned">
                   <AssigneeSelect value={r.assigneeId} onChange={(assigneeId) => updateIt(r.id, { assigneeId })} />
                 </Td>
-                <Td className="tnum text-right text-ink-600">{inr(r.fee)}</Td>
-                <Td className="text-right">
+                <Td label="Fee" className="tnum text-right text-ink-600">{inr(r.fee)}</Td>
+                <Td label="Received" className="text-right">
                   <Money value={r.received} onChange={(received) => updateIt(r.id, { received })} label="Fee received" />
                 </Td>
-                <Td>
+                <Td label="Remark" className="col-span-full">
                   <InlineText value={r.remark} onChange={(remark) => updateIt(r.id, { remark })} placeholder={r.status === 'pending' ? 'Why is it pending?' : 'Add remark'} />
                 </Td>
               </tr>
@@ -801,13 +807,13 @@ function AuditTracker() {
                 <Td>
                   <ClientCell client={c} sub={<>FY {a.fy}</>} />
                 </Td>
-                <Td>
+                <Td label="Audit">
                   <Badge tone={a.kind === 'Internal audit' ? 'violet' : 'amber'}>{a.kind}</Badge>
                 </Td>
-                <Td className="text-[13px]">
+                <Td label="Due" className="text-[13px]">
                   <Due date={a.dueDate} done={closed} compact={closed} />
                 </Td>
-                <Td>
+                <Td label="Data in">
                   <span className="flex justify-center">
                     {a.kind === 'Internal audit' ? (
                       <Tick checked={a.dataReceived} onChange={(dataReceived) => updateAudit(a.id, { dataReceived })} label="Data received" />
@@ -816,22 +822,22 @@ function AuditTracker() {
                     )}
                   </span>
                 </Td>
-                <Td>
+                <Td label="Reconciled">
                   <span className="flex justify-center">
                     <Tick checked={a.reconciliation} onChange={(reconciliation) => updateAudit(a.id, { reconciliation })} label="Reconciliation done" />
                   </span>
                 </Td>
-                <Td>
+                <Td label="Status">
                   <StatusSelect label="Audit status" value={a.status} options={SIMPLE_ITEMS} onChange={(status) => updateAudit(a.id, { status })} />
                 </Td>
-                <Td>
+                <Td label="Assigned">
                   <AssigneeSelect value={a.assigneeId} onChange={(assigneeId) => updateAudit(a.id, { assigneeId })} />
                 </Td>
-                <Td className="tnum text-right text-ink-600">{inr(a.fee)}</Td>
-                <Td className="text-right">
+                <Td label="Fee" className="tnum text-right text-ink-600">{inr(a.fee)}</Td>
+                <Td label="Received" className="text-right">
                   <Money value={a.received} onChange={(received) => updateAudit(a.id, { received })} label="Fee received" />
                 </Td>
-                <Td>
+                <Td label="Remark" className="col-span-full">
                   <InlineText value={a.remark} onChange={(remark) => updateAudit(a.id, { remark })} />
                 </Td>
               </tr>
@@ -1024,24 +1030,24 @@ function ServiceTracker() {
                   </span>
                 )}
               </Td>
-              <Td>
+              <Td label="Service">
                 <Badge tone="green">{s.kind}</Badge>
                 {s.details && <p className="mt-0.5 max-w-52 truncate text-xs text-ink-500" title={s.details}>{s.details}</p>}
               </Td>
-              <Td className="text-[13px]">
+              <Td label="Committed date" className="text-[13px]">
                 <Due date={s.committedDate} done={s.status === 'completed'} />
               </Td>
-              <Td>
+              <Td label="Status">
                 <StatusSelect label="Job status" value={s.status} options={SIMPLE_ITEMS} onChange={(status) => updateService(s.id, { status })} />
               </Td>
-              <Td>
+              <Td label="Assigned">
                 <AssigneeSelect value={s.assigneeId} onChange={(assigneeId) => updateService(s.id, { assigneeId })} />
               </Td>
-              <Td className="tnum text-right text-ink-600">{inr(s.fee)}</Td>
-              <Td className="text-right">
+              <Td label="Fee" className="tnum text-right text-ink-600">{inr(s.fee)}</Td>
+              <Td label="Received" className="text-right">
                 <Money value={s.received} onChange={(received) => updateService(s.id, { received })} label="Fee received" />
               </Td>
-              <Td>
+              <Td label="Remark" className="col-span-full">
                 <InlineText value={s.remark} onChange={(remark) => updateService(s.id, { remark })} />
               </Td>
             </tr>

@@ -11,6 +11,8 @@ import {
   LayoutDashboard,
   ListTodo,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Receipt,
   RotateCcw,
@@ -49,32 +51,55 @@ function useDismiss(open: boolean, onClose: () => void) {
   return ref
 }
 
+/**
+ * The sidebar has three shapes: a slide-in drawer below `lg`, a narrow rail of icons from `lg` to `xl`
+ * so the tables keep their width on small laptops, and the full labelled sidebar from `xl` up, which the
+ * user can collapse to the rail for more room. The `rail:` variant (see index.css) covers both rail cases;
+ * `RAIL_HIDE` marks what the rail drops.
+ */
+const RAIL_HIDE = 'rail:hidden'
+const NAV_KEY = 'fsg-nav-collapsed'
+
 function NavItem({ to, icon, label, count, onNavigate }: { to: string; icon: ReactNode; label: string; count?: number; onNavigate: () => void }) {
   return (
     <NavLink
       to={to}
       end={to === '/'}
       onClick={onNavigate}
+      title={label}
       className={({ isActive }) =>
         cn(
-          'group relative flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-sm font-semibold transition-colors',
+          'group relative flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-sm font-semibold transition-colors rail:justify-center rail:px-0',
           isActive ? 'bg-brand-50 text-brand-700' : 'text-ink-600 hover:bg-ink-100 hover:text-ink-900',
         )
       }
     >
       {({ isActive }) => (
         <>
-          {isActive && <span className="absolute top-2 bottom-2 -left-3 w-[3px] rounded-r bg-brand-500" />}
-          <span className={cn(isActive ? 'text-brand-600' : 'text-ink-400 group-hover:text-ink-600')}>{icon}</span>
-          <span className="flex-1 truncate">{label}</span>
+          {isActive && <span className="absolute top-2 bottom-2 -left-3 w-[3px] rounded-r bg-brand-500 rail:-left-2" />}
+          <span className={cn('relative', isActive ? 'text-brand-600' : 'text-ink-400 group-hover:text-ink-600')}>
+            {icon}
+            {/* On the rail the count becomes a dot on the icon. */}
+            {!!count && <span className="absolute -top-1 -right-1 hidden size-2 rounded-full bg-brand-500 ring-2 ring-white rail:block" />}
+          </span>
+          <span className={cn('flex-1 truncate', RAIL_HIDE)}>{label}</span>
           {!!count && (
-            <span className={cn('tnum rounded-md px-1.5 text-[11px] font-bold', isActive ? 'bg-brand-100 text-brand-700' : 'bg-ink-100 text-ink-500')}>
+            <span className={cn('tnum rounded-md px-1.5 text-[11px] font-bold', RAIL_HIDE, isActive ? 'bg-brand-100 text-brand-700' : 'bg-ink-100 text-ink-500')}>
               {count}
             </span>
           )}
         </>
       )}
     </NavLink>
+  )
+}
+
+/** A group heading in the sidebar; on the rail it shrinks to a divider. */
+function NavHeading({ children }: { children: ReactNode }) {
+  return (
+    <p className="px-2.5 pt-5 pb-1.5 text-[11px] font-bold tracking-wider text-ink-400 uppercase rail:mx-1.5 rail:mt-3 rail:mb-2 rail:h-px rail:overflow-hidden rail:bg-ink-200 rail:p-0">
+      {children}
+    </p>
   )
 }
 
@@ -89,7 +114,7 @@ function UserSwitcher() {
   return (
     <div ref={ref} className="relative">
       {open && (
-        <div className="absolute right-0 bottom-full left-0 z-30 mb-2 animate-pop-in overflow-hidden rounded-xl bg-white shadow-pop ring-1 ring-ink-200">
+        <div className="absolute right-0 bottom-full left-0 z-30 mb-2 animate-pop-in overflow-hidden rounded-xl bg-white shadow-pop ring-1 ring-ink-200 rail:right-auto rail:w-56">
           <p className="px-3 pt-3 pb-1.5 text-[11px] font-bold tracking-wider text-ink-400 uppercase">View the demo as</p>
           <ul className="scroll-thin max-h-72 overflow-y-auto px-1.5 pb-1.5">
             {employees.map((e) => (
@@ -128,14 +153,15 @@ function UserSwitcher() {
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="flex w-full items-center gap-2.5 rounded-xl p-2 text-left ring-1 ring-ink-200 transition-colors hover:bg-ink-50"
+        title={`${me.name} · switch person`}
+        className="flex w-full items-center gap-2.5 rounded-xl p-2 text-left ring-1 ring-ink-200 transition-colors hover:bg-ink-50 rail:justify-center rail:p-1 rail:ring-0"
       >
         <Avatar name={me.name} hue={me.hue} photo={me?.photo} size={34} />
-        <span className="min-w-0 flex-1">
+        <span className={cn('min-w-0 flex-1', RAIL_HIDE)}>
           <span className="block truncate text-[13px] font-bold text-ink-900">{me.name}</span>
           <span className="block truncate text-xs text-ink-500">{me.title}</span>
         </span>
-        <ChevronsUpDown size={15} className="text-ink-400" />
+        <ChevronsUpDown size={15} className={cn('text-ink-400', RAIL_HIDE)} />
       </button>
     </div>
   )
@@ -301,7 +327,7 @@ function Reminders() {
         )}
       </IconButton>
       {open && (
-        <div className="absolute top-full right-0 z-40 mt-2 w-[min(360px,calc(100vw-24px))] animate-pop-in overflow-hidden rounded-xl bg-white shadow-pop ring-1 ring-ink-200">
+        <div className="absolute top-full right-0 z-40 mt-2 w-[360px] animate-pop-in overflow-hidden rounded-xl bg-white shadow-pop ring-1 ring-ink-200 max-sm:fixed max-sm:inset-x-3 max-sm:top-14 max-sm:mt-1 max-sm:w-auto">
           <div className="flex items-center justify-between border-b border-ink-100 px-4 py-3">
             <p className="font-bold text-ink-900">Reminders</p>
             <span className="text-xs text-ink-500">for {me.name}</span>
@@ -377,6 +403,13 @@ function QuickAdd() {
 
 export default function Layout() {
   const [navOpen, setNavOpen] = useState(false)
+  // A wide screen shows the full sidebar unless the user has collapsed it; the choice is kept for next time.
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(NAV_KEY) === '1')
+  const toggleCollapsed = () =>
+    setCollapsed((c) => {
+      localStorage.setItem(NAV_KEY, c ? '0' : '1')
+      return !c
+    })
   const location = useLocation()
   const me = useCurrentUser()
   const tasks = useVisibleTasks()
@@ -393,19 +426,19 @@ export default function Layout() {
   }, [location.pathname])
 
   return (
-    <div className="min-h-dvh lg:pl-56">
+    <div data-rail={collapsed ? '' : undefined} className="min-h-dvh rail:pl-16 full:pl-56">
       {navOpen && <div className="fixed inset-0 z-40 animate-fade-in bg-ink-900/40 lg:hidden" onClick={closeNav} />}
 
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 flex w-56 flex-col border-r border-ink-200 bg-white transition-transform duration-200 lg:translate-x-0',
+          'fixed inset-y-0 left-0 z-50 flex w-56 flex-col border-r border-ink-200 bg-white transition-transform duration-200 lg:translate-x-0 rail:w-16',
           navOpen ? 'translate-x-0' : '-translate-x-full',
         )}
       >
-        <div className="flex h-16 items-center justify-between px-4">
+        <div className="flex h-16 items-center justify-between px-4 rail:justify-center rail:px-0">
           <NavLink to="/" onClick={closeNav} className="flex items-center gap-2.5">
-            <img src="/logo-mark.jpeg" alt="FSG" className="h-8 w-auto" />
-            <span className="border-l border-ink-200 pl-2.5 text-[11px] leading-tight font-bold tracking-wide text-ink-500 uppercase">
+            <img src="/logo-mark.jpeg" alt="FSG" className="h-8 w-auto rail:h-6" />
+            <span className={cn('border-l border-ink-200 pl-2.5 text-[11px] leading-tight font-bold tracking-wide text-ink-500 uppercase', RAIL_HIDE)}>
               Practice
               <br />
               Manager
@@ -416,7 +449,7 @@ export default function Layout() {
           </IconButton>
         </div>
 
-        <nav className="scroll-thin flex-1 space-y-0.5 overflow-y-auto px-3 py-2">
+        <nav className="scroll-thin flex-1 space-y-0.5 overflow-y-auto px-3 py-2 rail:px-2">
           <NavItem to="/" icon={<LayoutDashboard size={17} />} label="Dashboard" onNavigate={closeNav} />
           <NavItem to="/tasks" icon={<ListTodo size={17} />} label="Tasks" count={openTasks} onNavigate={closeNav} />
           <NavItem to="/calendar" icon={<CalendarDays size={17} />} label="Deadlines" onNavigate={closeNav} />
@@ -424,23 +457,23 @@ export default function Layout() {
             <NavItem to="/consultations" icon={<Clock size={17} />} label="Consultations" count={consultsToday} onNavigate={closeNav} />
           )}
 
-          <p className="px-2.5 pt-5 pb-1.5 text-[11px] font-bold tracking-wider text-ink-400 uppercase">Filings</p>
+          <NavHeading>Filings</NavHeading>
           <NavItem to="/filings/gst" icon={<Receipt size={17} />} label="GST" onNavigate={closeNav} />
           <NavItem to="/filings/tds" icon={<ScrollText size={17} />} label="TDS" onNavigate={closeNav} />
           <NavItem to="/filings/it" icon={<Landmark size={17} />} label="Income tax" onNavigate={closeNav} />
           <NavItem to="/filings/audit" icon={<FileCheck2 size={17} />} label="Audit" onNavigate={closeNav} />
           <NavItem to="/filings/services" icon={<Stamp size={17} />} label="One-time" onNavigate={closeNav} />
 
-          <p className="px-2.5 pt-5 pb-1.5 text-[11px] font-bold tracking-wider text-ink-400 uppercase">Relationships</p>
+          <NavHeading>Relationships</NavHeading>
           <NavItem to="/clients" icon={<Building2 size={17} />} label="Clients" onNavigate={closeNav} />
           <NavItem to="/leads" icon={<Target size={17} />} label="Leads" count={openLeads} onNavigate={closeNav} />
 
-          <p className="px-2.5 pt-5 pb-1.5 text-[11px] font-bold tracking-wider text-ink-400 uppercase">Firm</p>
+          <NavHeading>Firm</NavHeading>
           <NavItem to="/team" icon={<Users size={17} />} label="Team" onNavigate={closeNav} />
           <NavItem to="/attendance" icon={<CalendarCheck size={17} />} label="Attendance" onNavigate={closeNav} />
         </nav>
 
-        <div className="p-3">
+        <div className="p-3 rail:p-2">
           <UserSwitcher />
         </div>
       </aside>
@@ -448,6 +481,9 @@ export default function Layout() {
       <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-ink-200 bg-white/85 px-4 backdrop-blur sm:px-6">
         <IconButton label="Open menu" onClick={() => setNavOpen(true)} className="lg:hidden">
           <Menu size={19} />
+        </IconButton>
+        <IconButton label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} onClick={toggleCollapsed} className="-ml-1.5 hidden xl:inline-flex">
+          {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
         </IconButton>
         <GlobalSearch />
         <div className="ml-auto flex items-center gap-2">

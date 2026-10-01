@@ -40,6 +40,9 @@ import type { Client, Credential, DocKind, PaymentMode, Portal, ScopeKey } from 
 
 type Tab = 'overview' | 'clarifications' | 'fees' | 'logins' | 'documents' | 'work'
 
+/** When a table row is shown as a card, its remove button sits in the card's top corner. */
+const CARD_ACTION = '@max-3xl:absolute @max-3xl:top-2 @max-3xl:right-3'
+
 const SCOPE_CHIP =
   'group inline-flex h-8 max-w-full items-center gap-1.5 rounded-lg bg-brand-50 pr-2 pl-3 text-[13px] font-semibold text-brand-800 ring-1 ring-brand-200 transition-colors ring-inset hover:bg-brand-100 hover:ring-brand-300'
 
@@ -260,8 +263,8 @@ function Logins({ client }: { client: Client }) {
       {client.credentials.length === 0 && !adding ? (
         <Empty icon={<KeyRound size={20} />} title="No logins saved yet" hint="Add the GST, e-way bill, income tax or TRACES login for this client." />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] text-sm">
+        <div className="@container overflow-x-auto">
+          <table className="stack w-full min-w-[560px] text-sm">
             <thead className="border-y border-ink-100 bg-ink-50/60">
               <tr>
                 <Th>Portal</Th>
@@ -274,22 +277,22 @@ function Logins({ client }: { client: Client }) {
               {client.credentials.map((c) => {
                 const visible = shown.has(c.portal)
                 return (
-                  <tr key={c.portal}>
-                    <Td>
+                  <tr key={c.portal} className="relative">
+                    <Td className="@max-3xl:mr-10">
                       <p className="font-semibold text-ink-800">{PORTALS[c.portal].label}</p>
                       <p className="text-xs text-ink-500">{PORTALS[c.portal].hint}</p>
                     </Td>
-                    <Td>
-                      <span className="inline-flex items-center gap-1">
-                        <code className="tnum rounded bg-ink-50 px-1.5 py-0.5 text-[13px] text-ink-800">{c.username}</code>
+                    <Td label="Username" className="col-span-full">
+                      <span className="inline-flex max-w-full items-center gap-1">
+                        <code className="tnum truncate rounded bg-ink-50 px-1.5 py-0.5 text-[13px] text-ink-800">{c.username}</code>
                         <IconButton label="Copy username" onClick={() => copy(`${c.portal}-u`, c.username)}>
                           {copied === `${c.portal}-u` ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
                         </IconButton>
                       </span>
                     </Td>
-                    <Td>
-                      <span className="inline-flex items-center gap-1">
-                        <code className="tnum rounded bg-ink-50 px-1.5 py-0.5 text-[13px] text-ink-800">
+                    <Td label="Password" className="col-span-full">
+                      <span className="inline-flex max-w-full items-center gap-1">
+                        <code className="tnum truncate rounded bg-ink-50 px-1.5 py-0.5 text-[13px] text-ink-800">
                           {visible ? c.password : '•'.repeat(10)}
                         </code>
                         <IconButton label={visible ? 'Hide password' : 'Show password'} onClick={() => toggle(c.portal)}>
@@ -300,7 +303,7 @@ function Logins({ client }: { client: Client }) {
                         </IconButton>
                       </span>
                     </Td>
-                    <Td className="text-right">
+                    <Td className={cn('text-right', CARD_ACTION)}>
                       <IconButton label={`Remove ${PORTALS[c.portal].label} login`} onClick={() => remove(c.portal)} className="hover:text-rose-600">
                         <Trash2 size={14} />
                       </IconButton>
@@ -777,8 +780,8 @@ function Fees({ client }: { client: Client }) {
       {rows.length === 0 ? (
         <Empty icon={<IndianRupee size={20} />} title="No transactions yet" hint="Add a fee when work is billed and record payments as they come in." />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-sm">
+        <div className="@container overflow-x-auto">
+          <table className="stack w-full min-w-[640px] text-sm">
             <thead className="border-b border-ink-100 bg-ink-50/60">
               <tr>
                 <Th>Date</Th>
@@ -792,14 +795,23 @@ function Fees({ client }: { client: Client }) {
             </thead>
             <tbody className="divide-y divide-ink-100">
               {rows.map((x) => (
-                <tr key={x.id}>
-                  <Td className="tnum whitespace-nowrap text-ink-600">{fmtDate(x.date, true)}</Td>
-                  <Td className="font-medium text-ink-800">{x.description}</Td>
-                  <Td>{x.mode ? <Badge>{x.mode}</Badge> : <span className="text-ink-300">—</span>}</Td>
-                  <Td className="tnum text-right text-ink-800">{x.kind === 'charge' ? inr(x.amount) : ''}</Td>
-                  <Td className="tnum text-right font-semibold text-emerald-700">{x.kind === 'payment' ? inr(x.amount) : ''}</Td>
-                  <Td className={cn('tnum text-right font-bold', x.balance > 0 ? 'text-amber-700' : 'text-ink-500')}>{inr(x.balance)}</Td>
-                  <Td className="text-right">
+                <tr key={x.id} className="relative">
+                  <Td label="Date" className="tnum whitespace-nowrap text-ink-600">
+                    {fmtDate(x.date, true)}
+                  </Td>
+                  {/* As a card, what the entry is for comes first, clear of the remove button. */}
+                  <Td className="font-medium text-ink-800 @max-3xl:order-first @max-3xl:mr-10">{x.description}</Td>
+                  <Td label="Mode">{x.mode ? <Badge>{x.mode}</Badge> : <span className="text-ink-300">—</span>}</Td>
+                  <Td label="Fee" className="tnum text-right text-ink-800">
+                    {x.kind === 'charge' ? inr(x.amount) : null}
+                  </Td>
+                  <Td label="Received" className="tnum text-right font-semibold text-emerald-700">
+                    {x.kind === 'payment' ? inr(x.amount) : null}
+                  </Td>
+                  <Td label="Balance" className={cn('tnum text-right font-bold', x.balance > 0 ? 'text-amber-700' : 'text-ink-500')}>
+                    {inr(x.balance)}
+                  </Td>
+                  <Td className={cn('text-right', CARD_ACTION)}>
                     <IconButton
                       label="Remove entry"
                       onClick={() => updateClient(client.id, { transactions: client.transactions.filter((t) => t.id !== x.id) })}
@@ -842,7 +854,7 @@ export default function ClientDetail() {
 
       <div className="mb-5 flex flex-wrap items-center gap-4">
         <Avatar name={client.name} hue={(Number(client.code.slice(-3)) * 37) % 360} size={52} square />
-        <div className="min-w-0 flex-1">
+        <div className="min-w-48 flex-1">
           <h1 className="truncate text-[22px] leading-tight font-extrabold tracking-tight text-ink-900">{client.name}</h1>
           <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-500">
             <span className="tnum">{client.code}</span>
@@ -850,25 +862,27 @@ export default function ClientDetail() {
             <span>{[client.profession ?? client.business, client.place].filter(Boolean).join(' · ')}</span>
           </p>
         </div>
-        <label className="flex items-center gap-2 text-[13px] font-semibold text-ink-600">
-          {client.active ? 'Active' : 'Inactive'}
-          <button
-            type="button"
-            role="switch"
-            aria-checked={client.active}
-            aria-label="Client active"
-            onClick={() => updateClient(client.id, { active: !client.active })}
-            className={cn('relative h-6 w-10 rounded-full transition-colors', client.active ? 'bg-emerald-500' : 'bg-ink-300')}
-          >
-            <span className={cn('absolute top-0.5 left-0.5 size-5 rounded-full bg-white shadow transition-transform', client.active && 'translate-x-4')} />
-          </button>
-        </label>
-        <Button icon={<MessageCircle size={15} className="text-emerald-600" />} onClick={() => setMessaging(true)}>
-          Send status
-        </Button>
-        <Button icon={<Pencil size={15} />} onClick={() => setEditing(true)}>
-          Edit
-        </Button>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <label className="flex items-center gap-2 text-[13px] font-semibold text-ink-600">
+            {client.active ? 'Active' : 'Inactive'}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={client.active}
+              aria-label="Client active"
+              onClick={() => updateClient(client.id, { active: !client.active })}
+              className={cn('relative h-6 w-10 rounded-full transition-colors', client.active ? 'bg-emerald-500' : 'bg-ink-300')}
+            >
+              <span className={cn('absolute top-0.5 left-0.5 size-5 rounded-full bg-white shadow transition-transform', client.active && 'translate-x-4')} />
+            </button>
+          </label>
+          <Button icon={<MessageCircle size={15} className="text-emerald-600" />} onClick={() => setMessaging(true)}>
+            Send status
+          </Button>
+          <Button icon={<Pencil size={15} />} onClick={() => setEditing(true)}>
+            Edit
+          </Button>
+        </div>
       </div>
 
       <div className="mb-4">

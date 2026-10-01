@@ -80,6 +80,33 @@
   ::selection {
     background: var(--color-brand-200);
   }
+  /* A grid cell may be narrower than its content, so a long name truncates instead of widening the page. */
+  .grid > * {
+    min-width: 0;
+  }
+}
+
+/*
+ * The sidebar is a rail of icons on small laptops (lg to xl), and on wider screens once the user collapses it.
+ * `rail:` styles that shape; `full:` is the labelled sidebar, on wide screens that have not collapsed it.
+ */
+@custom-variant rail {
+  @media (width >= 64rem) and (width < 80rem) {
+    @slot;
+  }
+  @media (width >= 80rem) {
+    &:where([data-rail], [data-rail] *) {
+      @slot;
+    }
+  }
+}
+
+@custom-variant full {
+  @media (width >= 80rem) {
+    &:where(:not([data-rail], [data-rail] *)) {
+      @slot;
+    }
+  }
 }
 
 @utility tnum {
@@ -96,6 +123,80 @@
 @utility scroll-thin {
   scrollbar-width: thin;
   scrollbar-color: var(--color-ink-300) transparent;
+}
+
+/* Rows of tabs and chips still scroll sideways on a phone, without a bar under them. */
+@utility scroll-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/*
+ * Tables that become a list of cards when there is no room for columns.
+ * Wrap the table in an `@container`, give it `stack`, and give each cell a `data-label`
+ * (the Td `label` prop). It goes by the width of the box the table sits in, not of the
+ * screen, so it also works beside the sidebar and inside half-width cards.
+ * A cell without a label is the card's heading and spans it; `col-span-full` does the
+ * same for a labelled cell, such as a remark.
+ * These rules sit outside the layers so they win over the cells' own spacing utilities.
+ */
+@container (width < 48rem) {
+  table.stack {
+    display: block;
+    min-width: 0 !important;
+  }
+  table.stack thead {
+    display: none;
+  }
+  table.stack tbody,
+  table.stack tfoot {
+    display: block;
+  }
+  table.stack tr {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+    gap: 0.625rem 1rem;
+    align-items: start;
+    padding: 0.875rem 1.25rem;
+  }
+  table.stack td {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    text-align: left;
+  }
+  table.stack td:empty {
+    display: none;
+  }
+  table.stack td:not([data-label]) {
+    grid-column: 1 / -1;
+  }
+  table.stack td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.125rem;
+    color: var(--color-ink-400);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    line-height: 1.4;
+    text-transform: uppercase;
+  }
+  /* Ticks are centred under their column heading; in a card they line up with the rest. */
+  table.stack td > .justify-center {
+    justify-content: flex-start;
+  }
+}
+
+/* iOS zooms the page when a focused field's text is under 16px; on touch screens give it that. */
+@media (hover: none) and (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
