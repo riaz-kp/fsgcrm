@@ -38,6 +38,13 @@ export type ScopeKey =
   | 'pf'
   | 'esi'
   | 'project_report'
+  | 'legal_metrology'
+  | 'certification'
+  | 'tan_application'
+  | 'pan_application'
+  | 'other'
+
+export type ScopeDetails = Partial<Record<ScopeKey, string>>
 
 export type Portal = 'gst' | 'eway' | 'it' | 'tds' | 'traces_deductor' | 'traces_taxpayer'
 
@@ -72,6 +79,8 @@ export interface Client {
   business: string
   place: string
   phone: string
+  /** Kept apart from the phone: many clients message from a different number. */
+  whatsapp?: string
   email: string
   gstin?: string
   pan?: string
@@ -79,6 +88,8 @@ export interface Client {
   gstFrequency?: 'M' | 'Q'
   active: boolean
   scopes: ScopeKey[]
+  /** Which certificate, what "other" means, and so on. */
+  scopeDetails?: ScopeDetails
   credentials: Credential[]
   documents: ClientDoc[]
   /** Date the requirement list for a scope was sent to the client. */
@@ -123,10 +134,12 @@ export interface Lead {
   name: string
   contact: string
   phone: string
+  whatsapp?: string
   place: string
   source: string
   category: ClientCategory
   scopes: ScopeKey[]
+  scopeDetails?: ScopeDetails
   status: LeadStatus
   ownerId: string
   nextFollowUp?: string
@@ -183,11 +196,14 @@ export interface GstFiling {
 
 export type SimpleStatus = 'to_begin' | 'pending' | 'filed' | 'completed'
 
+export type TdsPayment = 'paid' | 'due' | 'na'
+
 export interface TdsFiling {
   id: string
   clientId: string
   fy: string
-  payment: 'paid' | 'due' | 'na'
+  /** Month the tax was deducted in (YYYY-MM) -> whether it has been deposited. */
+  payments: Record<string, TdsPayment>
   quarters: [SimpleStatus, SimpleStatus, SimpleStatus, SimpleStatus]
   assigneeId: string
   remark: string
@@ -204,6 +220,8 @@ export interface ItFiling {
   fee: number
   received: number
   remark: string
+  /** Stamped when the status moves to filed or completed. */
+  doneOn?: string
 }
 
 export interface AuditFiling {
@@ -218,6 +236,7 @@ export interface AuditFiling {
   assigneeId: string
   dueDate: string
   remark: string
+  doneOn?: string
 }
 
 export type ServiceKind =
@@ -248,6 +267,7 @@ export interface ServiceJob {
   fee: number
   received: number
   remark: string
+  doneOn?: string
 }
 
 /* ---------- Consultations & attendance ---------- */
@@ -269,5 +289,12 @@ export interface Consultation {
 
 export type AttendanceMark = 'P' | 'H' | 'L' | 'A'
 
-/** employee id -> date -> mark */
-export type Attendance = Record<string, Record<string, AttendanceMark>>
+export interface AttendanceEntry {
+  mark: AttendanceMark
+  /** Time in and out, HH:MM in 24h. Only kept for days worked. */
+  in?: string
+  out?: string
+}
+
+/** employee id -> date -> entry */
+export type Attendance = Record<string, Record<string, AttendanceEntry>>

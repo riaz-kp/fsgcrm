@@ -133,6 +133,42 @@ export function fmtTime(hhmm: string): string {
   return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'am' : 'pm'}`
 }
 
+/** The time right now as 'HH:MM'. */
+export function nowHHMM(): string {
+  const d = new Date()
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+/** Minutes from one 'HH:MM' to a later one on the same day; 0 if either is missing or they are out of order. */
+export function minutesBetween(from?: string, to?: string): number {
+  if (!from || !to) return 0
+  const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))
+  return Math.max(0, mins(to) - mins(from))
+}
+
+/** 495 -> '8h 15m' */
+export function fmtDuration(minutes: number): string {
+  const h = Math.floor(minutes / 60)
+  const m = Math.round(minutes % 60)
+  return m ? `${h}h ${m}m` : `${h}h`
+}
+
+/* ---------- Contact links ---------- */
+
+/** Numbers are stored the way people write them; a bare ten-digit number is taken to be Indian. */
+function dialDigits(phone: string): string {
+  const d = phone.replace(/\D/g, '')
+  return d.length === 10 ? `91${d}` : d
+}
+
+export function telHref(phone: string): string {
+  return `tel:+${dialDigits(phone)}`
+}
+
+export function whatsappHref(phone: string): string {
+  return `https://wa.me/${dialDigits(phone)}`
+}
+
 /** Days until the next occurrence of a birthday (0 = today). */
 export function daysToBirthday(dob: string): number {
   const today = parseISO(todayISO())

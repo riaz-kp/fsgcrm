@@ -1,13 +1,13 @@
-import { ArrowRight, CalendarClock, MapPin, Phone, Plus, Send, Target, UserCheck, X } from 'lucide-react'
+import { ArrowRight, CalendarClock, MapPin, Plus, Send, Target, UserCheck, X } from 'lucide-react'
 import { useMemo, useState, type DragEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Due, ScopeChips } from '../components/bits'
+import { Due, PhoneLink, ScopeChips, WhatsAppLink } from '../components/bits'
 import { ScopePicker } from '../components/ClientForm'
 import { Avatar, Badge, Button, Card, Drawer, Empty, Field, IconButton, Input, Modal, PageHeader, Person, Segmented, Select, StatusSelect, Td, Textarea, Th, TONE_BAR } from '../components/ui'
 import { addDays, cn, daysUntil, fmtDate, todayISO } from '../lib/format'
-import { CATEGORIES, CATEGORY_TONE, LEAD_SOURCES, LEAD_STATUS, LEAD_STATUS_ORDER, SCOPE_LABEL, options } from '../lib/meta'
+import { CATEGORIES, CATEGORY_TONE, LEAD_SOURCES, LEAD_STATUS, LEAD_STATUS_ORDER, SCOPE_LABEL, options, pruneScopeDetails } from '../lib/meta'
 import { useCurrentUser, useLookup, useStore } from '../store'
-import type { ClientCategory, Lead, LeadStatus, ScopeKey } from '../types'
+import type { ClientCategory, Lead, LeadStatus, ScopeDetails, ScopeKey } from '../types'
 
 const isOpen = (l: Lead) => l.status === 'new' || l.status === 'followup'
 
@@ -19,10 +19,12 @@ function LeadForm({ onClose }: { onClose: () => void }) {
     name: '',
     contact: '',
     phone: '',
+    whatsapp: '',
     place: '',
     source: LEAD_SOURCES[0],
     category: 'Proprietorship' as ClientCategory,
     scopes: [] as ScopeKey[],
+    scopeDetails: {} as ScopeDetails,
     ownerId: employees.find((e) => e.responsibilities.includes('Client lead management'))?.id ?? me.id,
     nextFollowUp: addDays(todayISO(), 2),
     note: '',
@@ -33,7 +35,17 @@ function LeadForm({ onClose }: { onClose: () => void }) {
   const save = () => {
     if (!valid) return
     const { note, ...lead } = f
-    addLead({ ...lead, name: f.name.trim(), status: 'new' }, note.trim() || undefined)
+    addLead(
+      {
+        ...lead,
+        name: f.name.trim(),
+        phone: f.phone.trim(),
+        whatsapp: f.whatsapp.trim() || undefined,
+        scopeDetails: pruneScopeDetails(f.scopes, f.scopeDetails),
+        status: 'new',
+      },
+      note.trim() || undefined,
+    )
     onClose()
   }
 
@@ -64,6 +76,9 @@ function LeadForm({ onClose }: { onClose: () => void }) {
         <Field label="Phone">
           <Input value={f.phone} onChange={(e) => set('phone', e.target.value)} inputMode="tel" />
         </Field>
+        <Field label="WhatsApp number" hint="optional">
+          <Input value={f.whatsapp} onChange={(e) => set('whatsapp', e.target.value)} inputMode="tel" />
+        </Field>
         <Field label="Place">
           <Input value={f.place} onChange={(e) => set('place', e.target.value)} />
         </Field>
@@ -92,7 +107,7 @@ function LeadForm({ onClose }: { onClose: () => void }) {
         </Field>
         <div className="sm:col-span-2">
           <p className="mb-1.5 text-[13px] font-semibold text-ink-700">What they enquired about</p>
-          <ScopePicker value={f.scopes} onChange={(v) => set('scopes', v)} />
+          <ScopePicker value={f.scopes} onChange={(v) => set('scopes', v)} details={f.scopeDetails} onDetails={(v) => set('scopeDetails', v)} />
         </div>
         <Field label="Next follow-up">
           <Input type="date" value={f.nextFollowUp} onChange={(e) => set('nextFollowUp', e.target.value)} />
@@ -149,9 +164,14 @@ function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void }) {
           </div>
           <div>
             <dt className="text-xs text-ink-500">Phone</dt>
-            <dd className="tnum flex items-center gap-1.5 font-semibold text-ink-800">
-              <Phone size={13} className="text-ink-400" />
-              {lead.phone}
+            <dd className="font-semibold text-ink-800">
+              <PhoneLink phone={lead.phone} icon />
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-ink-500">WhatsApp</dt>
+            <dd className="font-semibold text-ink-800">
+              <WhatsAppLink number={lead.whatsapp} />
             </dd>
           </div>
           <div>
@@ -170,7 +190,16 @@ function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void }) {
           <div className="col-span-2">
             <dt className="mb-1 text-xs text-ink-500">Enquired about</dt>
             <dd className="flex flex-wrap gap-1.5">
-              {lead.scopes.length ? lead.scopes.map((s) => <Badge key={s} tone="blue">{SCOPE_LABEL[s]}</Badge>) : <span className="text-ink-400">Not recorded</span>}
+              {lead.scopes.length ? (
+                lead.scopes.map((s) => (
+                  <Badge key={s} tone="blue">
+                    {SCOPE_LABEL[s]}
+                    {lead.scopeDetails?.[s] && <span className="font-normal"> · {lead.scopeDetails[s]}</span>}
+                  </Badge>
+                ))
+              ) : (
+                <span className="text-ink-400">Not recorded</span>
+              )}
             </dd>
           </div>
           {isOpen(lead) && (
@@ -405,8 +434,9 @@ export default function Leads() {
                   <tr key={l.id} onClick={() => setParams({ open: l.id })} className="cursor-pointer hover:bg-brand-50/40">
                     <Td>
                       <p className="font-semibold text-ink-900">{l.name}</p>
-                      <p className="tnum text-xs text-ink-500">
-                        {l.contact} · {l.phone}
+                      <p className="flex items-center gap-1.5 text-xs text-ink-500">
+                        {l.contact} · <PhoneLink phone={l.phone} />
+                        <WhatsAppLink number={l.whatsapp} compact />
                       </p>
                     </Td>
                     <Td>

@@ -156,7 +156,7 @@ function GlobalSearch() {
     const hit = (s?: string) => !!s && s.toLowerCase().includes(term)
     return [
       ...clients
-        .filter((c) => hit(c.name) || hit(c.code) || hit(c.phone) || hit(c.gstin) || hit(c.place))
+        .filter((c) => hit(c.name) || hit(c.code) || hit(c.phone) || hit(c.whatsapp) || hit(c.gstin) || hit(c.place))
         .slice(0, 5)
         .map((c) => ({ key: c.id, kind: 'Client', title: c.name, sub: `${c.code} · ${c.place}`, to: `/clients/${c.id}` })),
       ...leads

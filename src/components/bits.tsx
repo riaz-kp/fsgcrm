@@ -1,6 +1,6 @@
-import { Repeat } from 'lucide-react'
-import type { ReactNode } from 'react'
-import { cn, daysUntil, fmtDate, relDue } from '../lib/format'
+import { MessageCircle, Phone, Repeat } from 'lucide-react'
+import type { MouseEvent, ReactNode } from 'react'
+import { cn, daysUntil, fmtDate, relDue, telHref, whatsappHref } from '../lib/format'
 import { SCOPE_LABEL, SCOPE_SHORT } from '../lib/meta'
 import type { Recurrence, ScopeKey } from '../types'
 import { Badge } from './ui'
@@ -33,6 +33,51 @@ export function ScopeChips({ scopes, max = 3 }: { scopes: ScopeKey[]; max?: numb
         </Badge>
       )}
     </span>
+  )
+}
+
+/* ---------- Contact links: tap to call, message or mail ---------- */
+
+const CONTACT = 'inline-flex max-w-full items-center gap-1.5 rounded underline-offset-2 hover:underline'
+// Rows and cards these sit in are often clickable themselves.
+const stop = (e: MouseEvent) => e.stopPropagation()
+const none = <span className="font-normal text-ink-400">—</span>
+
+export function PhoneLink({ phone, icon, className }: { phone?: string; icon?: boolean; className?: string }) {
+  if (!phone) return none
+  return (
+    <a href={telHref(phone)} onClick={stop} title={`Call ${phone}`} className={cn(CONTACT, 'tnum whitespace-nowrap hover:text-brand-700', className)}>
+      {icon && <Phone size={13} className="shrink-0 text-ink-400" />}
+      {phone}
+    </a>
+  )
+}
+
+/** With `compact`, only the icon shows; the number is in the tooltip. */
+export function WhatsAppLink({ number, compact, className }: { number?: string; compact?: boolean; className?: string }) {
+  if (!number) return compact ? null : none
+  return (
+    <a
+      href={whatsappHref(number)}
+      target="_blank"
+      rel="noreferrer"
+      onClick={stop}
+      title={`WhatsApp ${number}`}
+      aria-label={`WhatsApp ${number}`}
+      className={cn(CONTACT, 'tnum whitespace-nowrap hover:text-emerald-700', className)}
+    >
+      <MessageCircle size={compact ? 15 : 13} className="shrink-0 text-emerald-600" />
+      {!compact && number}
+    </a>
+  )
+}
+
+export function MailLink({ email, className }: { email?: string; className?: string }) {
+  if (!email) return none
+  return (
+    <a href={`mailto:${email}`} onClick={stop} title={`Email ${email}`} className={cn(CONTACT, 'hover:text-brand-700', className)}>
+      <span className="truncate">{email}</span>
+    </a>
   )
 }
 

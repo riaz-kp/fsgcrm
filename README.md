@@ -28,11 +28,11 @@ export NODE_EXTRA_CA_CERTS=/etc/ssl/cert.pem
 | Tasks | Heads assign work; the assignee updates a progress bar and remarks, then submits; a head approves or sends it back. Only the CEO and heads see everyone's tasks |
 | Deadlines | Calendar of statutory dates worked out from each client's scopes, plus task due dates, lead follow-ups and consultations |
 | Consultations | The CEO's consulting schedule, with reminders the day before and on the day (CEO and heads only) |
-| GST, TDS, Income tax, Audit, One-time | The Excel trackers as editable tables, one sidebar entry each |
-| Clients | Details, scope checkmarks with "requirement sent", clarifications (call summary and recording), fee ledger, portal logins, documents, work in progress |
+| GST, TDS, Income tax, Audit, One-time | The Excel trackers as editable tables, one sidebar entry each. Every tracker filters by search, status and person, plus its own filters (return period, payment month, quarter, kind of audit or service) |
+| Clients | Details with click-to-call phone, WhatsApp and email; scope of work (changed only through Edit, each scope opens its tracker for that client) with "requirement sent"; clarifications (call summary and recording); fee ledger; portal logins; documents; filing status and a month-by-month work history showing who did what |
 | Leads | Enquiry → follow-up → won / lost, with remarks; a won lead converts to a client |
 | Team | Photo, date of joining, birthday, who reports to whom, and workload |
-| Attendance | Daily register per person, month by month |
+| Attendance | Daily register with time in and out, month by month. Each person has a detail page: days worked, present, half days, leave, absent, hours, day-by-day timings and a month-by-month summary |
 
 Use the name at the bottom of the sidebar to view the demo as a different person.
 Heads can assign and approve; trainees see their own work. "Reset sample data"
@@ -44,4 +44,6 @@ is in the same menu.
 - `src/store.ts` — app state and actions; the place a real API would plug in
 - `src/lib/deadlines.ts` — statutory dates and FSG's one-day-early staff cut-offs
 - `src/lib/meta.ts` — labels for scopes, statuses, departments
+- `src/lib/history.ts` — builds a client's work history from the trackers and tasks
+- `src/lib/attendance.ts` — attendance totals and hours
 - `src/pages/` — one file per screen

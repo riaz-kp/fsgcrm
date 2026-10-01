@@ -4,6 +4,7 @@ import { persist } from 'zustand/middleware'
 import { buildSeed, type SeedData } from './data/seed'
 import { currentGstPeriod, todayISO, uid } from './lib/format'
 import type {
+  AttendanceEntry,
   AttendanceMark,
   AuditFiling,
   Client,
@@ -12,8 +13,8 @@ import type {
   GstFiling,
   ItFiling,
   Lead,
-  ScopeKey,
   ServiceJob,
+  SimpleStatus,
   Task,
   TdsFiling,
 } from './types'
@@ -24,7 +25,6 @@ interface Actions {
 
   addClient: (c: Omit<Client, 'id' | 'code' | 'since' | 'requirementsSent' | 'clarifications' | 'transactions'>) => string
   updateClient: (id: string, patch: Partial<Client>) => void
-  toggleScope: (id: string, scope: ScopeKey) => void
 
   addLead: (l: Omit<Lead, 'id' | 'createdAt' | 'remarks'>, note?: string) => string
   updateLead: (id: string, patch: Partial<Lead>) => void
@@ -48,8 +48,10 @@ interface Actions {
   addConsultation: (c: Omit<Consultation, 'id'>) => void
   updateConsultation: (id: string, patch: Partial<Consultation>) => void
 
-  /** Pass no mark to clear the day. */
+  /** Pass no mark to clear the day. Times are kept only for days worked. */
   setAttendance: (employeeId: string, date: string, mark?: AttendanceMark) => void
+  /** Record time in or out; an empty string clears it. Marks the day present if it was blank. */
+  setAttendanceTime: (employeeId: string, date: string, patch: Pick<AttendanceEntry, 'in' | 'out'>) => void
 }
 
 export interface State extends SeedData, Actions {
@@ -58,6 +60,17 @@ export interface State extends SeedData, Actions {
 
 function patchIn<T extends { id: string }>(list: T[], id: string, patch: Partial<T>): T[] {
   return list.map((x) => (x.id === id ? { ...x, ...patch } : x))
+}
+
+/** Like patchIn, but notes the day the work was filed or completed, and forgets it if the status is moved back. */
+function patchStatus<T extends { id: string; status: SimpleStatus; doneOn?: string }>(list: T[], id: string, patch: Partial<T>): T[] {
+  return list.map((x) => {
+    if (x.id !== id) return x
+    const next = { ...x, ...patch }
+    const done = next.status === 'filed' || next.status === 'completed'
+    next.doneOn = done ? (x.doneOn ?? todayISO()) : undefined
+    return next
+  })
 }
 
 export const useStore = create<State>()(
@@ -83,14 +96,6 @@ export const useStore = create<State>()(
         return id
       },
       updateClient: (id, patch) => set((s) => ({ clients: patchIn(s.clients, id, patch) })),
-      toggleScope: (id, scope) =>
-        set((s) => ({
-          clients: s.clients.map((c) =>
-            c.id === id
-              ? { ...c, scopes: c.scopes.includes(scope) ? c.scopes.filter((x) => x !== scope) : [...c.scopes, scope] }
-              : c,
-          ),
-        })),
 
       addLead: (l, note) => {
         const id = uid('l')
@@ -117,9 +122,11 @@ export const useStore = create<State>()(
           business: '',
           place: lead.place,
           phone: lead.phone,
+          whatsapp: lead.whatsapp,
           email: '',
           active: true,
           scopes: lead.scopes,
+          scopeDetails: lead.scopeDetails,
           gstFrequency: lead.scopes.includes('gst_filing') ? 'M' : undefined,
           credentials: [],
           documents: [],
@@ -169,9 +176,9 @@ export const useStore = create<State>()(
 
       updateGst: (id, patch) => set((s) => ({ gst: patchIn(s.gst, id, patch) })),
       updateTds: (id, patch) => set((s) => ({ tds: patchIn(s.tds, id, patch) })),
-      updateIt: (id, patch) => set((s) => ({ it: patchIn(s.it, id, patch) })),
-      updateAudit: (id, patch) => set((s) => ({ audits: patchIn(s.audits, id, patch) })),
-      updateService: (id, patch) => set((s) => ({ services: patchIn(s.services, id, patch) })),
+      updateIt: (id, patch) => set((s) => ({ it: patchStatus(s.it, id, patch) })),
+      updateAudit: (id, patch) => set((s) => ({ audits: patchStatus(s.audits, id, patch) })),
+      updateService: (id, patch) => set((s) => ({ services: patchStatus(s.services, id, patch) })),
       addService: (job) => set((s) => ({ services: [{ ...job, id: uid('s') }, ...s.services] })),
 
       addEmployee: (e) =>
@@ -186,14 +193,25 @@ export const useStore = create<State>()(
       setAttendance: (employeeId, date, mark) =>
         set((s) => {
           const days = { ...s.attendance[employeeId] }
-          if (mark) days[date] = mark
-          else delete days[date]
+          if (!mark) delete days[date]
+          else if (mark === 'P' || mark === 'H') days[date] = { ...days[date], mark }
+          else days[date] = { mark }
+          return { attendance: { ...s.attendance, [employeeId]: days } }
+        }),
+      setAttendanceTime: (employeeId, date, patch) =>
+        set((s) => {
+          const days = { ...s.attendance[employeeId] }
+          const was = days[date]
+          const entry: AttendanceEntry = { ...was, mark: was?.mark === 'H' ? 'H' : 'P', ...patch }
+          if (!entry.in) delete entry.in
+          if (!entry.out) delete entry.out
+          days[date] = entry
           return { attendance: { ...s.attendance, [employeeId]: days } }
         }),
     }),
     {
       name: 'fsg-crm-demo',
-      version: 2,
+      version: 3,
       // The demo's shape changed; older saved sample data is replaced rather than patched.
       migrate: () => ({ ...buildSeed(), currentUserId: 'e-praveen' }) as State,
     },

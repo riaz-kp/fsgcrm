@@ -11,6 +11,7 @@ import type {
   Portal,
   Priority,
   Role,
+  ScopeDetails,
   ScopeKey,
   ServiceKind,
   SimpleStatus,
@@ -39,20 +40,48 @@ export const CATEGORY_TONE: Record<ClientCategory, Tone> = {
   Trust: 'green',
 }
 
-export const SCOPES: Array<{ key: ScopeKey; label: string; short: string; group: string }> = [
-  { key: 'gst_registration', label: 'GST registration', short: 'GST Reg', group: 'GST' },
-  { key: 'gst_filing', label: 'GST filing', short: 'GST', group: 'GST' },
-  { key: 'annual_return', label: 'Annual return', short: 'Annual', group: 'GST' },
-  { key: 'eway', label: 'E-way bill', short: 'E-way', group: 'GST' },
-  { key: 'it_non_audit', label: 'IT · non-audit case', short: 'IT', group: 'Income tax & audit' },
-  { key: 'it_audit', label: 'IT · audit case', short: 'IT Audit', group: 'Income tax & audit' },
-  { key: 'internal_audit', label: 'Internal audit', short: 'Int. Audit', group: 'Income tax & audit' },
-  { key: 'tds', label: 'TDS', short: 'TDS', group: 'Payroll & TDS' },
+export type TrackerTab = 'gst' | 'tds' | 'it' | 'audit' | 'services'
+
+export interface ScopeMeta {
+  key: ScopeKey
+  label: string
+  short: string
+  group: string
+  /** The filing tracker this scope's work is followed in, if it has one. */
+  tracker?: TrackerTab
+  /** Set for scopes that need a line saying what exactly is meant. */
+  detailHint?: string
+}
+
+export const SCOPES: ScopeMeta[] = [
+  { key: 'gst_registration', label: 'GST registration', short: 'GST Reg', group: 'GST', tracker: 'services' },
+  { key: 'gst_filing', label: 'GST filing', short: 'GST', group: 'GST', tracker: 'gst' },
+  { key: 'annual_return', label: 'Annual return', short: 'Annual', group: 'GST', tracker: 'gst' },
+  { key: 'eway', label: 'E-way bill', short: 'E-way', group: 'GST', tracker: 'gst' },
+  { key: 'it_non_audit', label: 'IT · non-audit case', short: 'IT', group: 'Income tax & audit', tracker: 'it' },
+  { key: 'it_audit', label: 'IT · audit case', short: 'IT Audit', group: 'Income tax & audit', tracker: 'it' },
+  { key: 'internal_audit', label: 'Internal audit', short: 'Int. Audit', group: 'Income tax & audit', tracker: 'audit' },
+  { key: 'tds', label: 'TDS', short: 'TDS', group: 'Payroll & TDS', tracker: 'tds' },
   { key: 'pf', label: 'PF', short: 'PF', group: 'Payroll & TDS' },
   { key: 'esi', label: 'ESI', short: 'ESI', group: 'Payroll & TDS' },
-  { key: 'incorporation', label: 'Incorporation / formation', short: 'Incorp', group: 'One-time' },
+  { key: 'incorporation', label: 'Incorporation / formation', short: 'Incorp', group: 'One-time', tracker: 'services' },
   { key: 'project_report', label: 'Project report', short: 'Proj. Report', group: 'One-time' },
+  { key: 'legal_metrology', label: 'Legal metrology', short: 'Legal Met.', group: 'One-time', tracker: 'services' },
+  { key: 'certification', label: 'Certifications', short: 'Cert.', group: 'One-time', tracker: 'services', detailHint: 'Which certificate? e.g. ISO 9001 renewal' },
+  { key: 'tan_application', label: 'TAN application', short: 'TAN', group: 'One-time', tracker: 'services' },
+  { key: 'pan_application', label: 'PAN application', short: 'PAN', group: 'One-time', tracker: 'services' },
+  { key: 'other', label: 'Other', short: 'Other', group: 'One-time', tracker: 'services', detailHint: 'What is the work?' },
 ]
+
+export const SCOPE_GROUPS = [...new Set(SCOPES.map((s) => s.group))]
+
+/** Keep only the notes that belong to a ticked scope and say something. */
+export function pruneScopeDetails(scopes: ScopeKey[], details: ScopeDetails): ScopeDetails | undefined {
+  const kept = Object.fromEntries(
+    SCOPES.filter((s) => s.detailHint && scopes.includes(s.key) && details[s.key]?.trim()).map((s) => [s.key, details[s.key]!.trim()]),
+  )
+  return Object.keys(kept).length ? kept : undefined
+}
 
 export const SCOPE_LABEL = Object.fromEntries(SCOPES.map((s) => [s.key, s.label])) as Record<ScopeKey, string>
 export const SCOPE_SHORT = Object.fromEntries(SCOPES.map((s) => [s.key, s.short])) as Record<ScopeKey, string>

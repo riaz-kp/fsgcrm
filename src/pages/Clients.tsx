@@ -1,7 +1,7 @@
 import { Building2, Plus, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ScopeChips } from '../components/bits'
+import { PhoneLink, ScopeChips, WhatsAppLink } from '../components/bits'
 import ClientForm from '../components/ClientForm'
 import { Avatar, Badge, Button, Card, Empty, PageHeader, Segmented, Select, Td, Th } from '../components/ui'
 import { cn } from '../lib/format'
@@ -28,7 +28,7 @@ export default function Clients() {
         (!category || c.category === category) &&
         (!scope || c.scopes.includes(scope)) &&
         (!term ||
-          [c.name, c.code, c.place, c.phone, c.business, c.profession, c.gstin, c.pan].some((v) => v?.toLowerCase().includes(term))),
+          [c.name, c.code, c.place, c.phone, c.whatsapp, c.email, c.business, c.profession, c.gstin, c.pan].some((v) => v?.toLowerCase().includes(term))),
     )
   }, [clients, q, category, scope, status])
 
@@ -140,7 +140,12 @@ export default function Clients() {
                     </Td>
                     <Td className="text-ink-600">{c.profession ?? c.business}</Td>
                     <Td className="text-ink-600">{c.place}</Td>
-                    <Td className="tnum whitespace-nowrap text-ink-600">{c.phone}</Td>
+                    <Td className="text-ink-600">
+                      <span className="flex items-center gap-2">
+                        <PhoneLink phone={c.phone} />
+                        <WhatsAppLink number={c.whatsapp} compact />
+                      </span>
+                    </Td>
                     <Td>
                       <ScopeChips scopes={c.scopes} max={4} />
                     </Td>

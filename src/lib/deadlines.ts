@@ -140,3 +140,10 @@ export function statutoryDeadlines(from: string, to: string): Deadline[] {
 
   return out.filter((d) => d.date >= from && d.date <= to).sort((a, b) => a.date.localeCompare(b.date))
 }
+
+/** When one client's income tax return falls due, from the kind of case and the client's category. */
+export function itDueDate(row: { ay: string; kind: 'non_audit' | 'audit' }, c?: Client): string {
+  const y = row.ay.slice(0, 4)
+  if (row.kind === 'audit') return `${y}-10-31`
+  return c?.category === 'Proprietorship' ? `${y}-08-31` : `${y}-07-31`
+}

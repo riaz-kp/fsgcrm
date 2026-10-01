@@ -1,6 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
-import AttendancePage from './pages/Attendance'
+import AttendancePage, { AttendanceDetail } from './pages/Attendance'
 import Calendar from './pages/Calendar'
 import ClientDetail from './pages/ClientDetail'
 import Clients from './pages/Clients'
@@ -21,6 +21,7 @@ export default function App() {
           <Route path="filings/:tab?" element={<Compliance />} />
           <Route path="consultations" element={<Consultations />} />
           <Route path="attendance" element={<AttendancePage />} />
+          <Route path="attendance/:id" element={<AttendanceDetail />} />
           <Route path="calendar" element={<Calendar />} />
           <Route path="clients" element={<Clients />} />
           <Route path="clients/:id" element={<ClientDetail />} />

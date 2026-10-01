@@ -5,7 +5,7 @@
 import { addDays, currentGstPeriod, financialYear, periodLabel, shiftPeriod, todayISO } from '../lib/format'
 import type {
   Attendance,
-  AttendanceMark,
+  AttendanceEntry,
   AuditFiling,
   Client,
   Consultation,
@@ -19,12 +19,17 @@ import type {
   ItFiling,
   Lead,
   Remark,
+  ScopeDetails,
   ScopeKey,
   ServiceJob,
   SimpleStatus,
   Task,
   TdsFiling,
+  TdsPayment,
 } from '../types'
+
+/** How many months of filing history the sample data carries. */
+const HISTORY_MONTHS = 6
 
 export interface SeedData {
   employees: Employee[]
@@ -120,11 +125,11 @@ type ClientRow = [
   business: string,
   place: string,
   scopes: ScopeKey[],
-  extra?: { profession?: string; freq?: 'M' | 'Q'; inactive?: boolean },
+  extra?: { profession?: string; freq?: 'M' | 'Q'; inactive?: boolean; details?: ScopeDetails },
 ]
 
 const CLIENT_ROWS: ClientRow[] = [
-  ['Malabar Spice Traders', 'Proprietorship', 'Spices wholesale', 'Kozhikode', ['gst_filing', 'it_non_audit', 'eway']],
+  ['Malabar Spice Traders', 'Proprietorship', 'Spices wholesale', 'Kozhikode', ['gst_filing', 'it_non_audit', 'eway', 'incorporation']],
   [
     'Kadalundi Marine Exports Pvt Ltd',
     'Company',
@@ -132,7 +137,14 @@ const CLIENT_ROWS: ClientRow[] = [
     'Kozhikode',
     ['gst_filing', 'it_audit', 'tds', 'eway', 'pf', 'esi'],
   ],
-  ['Greenleaf Ayurveda LLP', 'LLP', 'Ayurvedic products', 'Thrissur', ['gst_filing', 'it_audit', 'tds']],
+  [
+    'Greenleaf Ayurveda LLP',
+    'LLP',
+    'Ayurvedic products',
+    'Thrissur',
+    ['gst_filing', 'it_audit', 'tds', 'certification'],
+    { details: { certification: 'ISO 9001 and GMP certificate renewal' } },
+  ],
   ['Dr. Anjali Menon', 'Individual', 'Medical practice', 'Manjeri', ['it_non_audit'], { profession: 'Doctor' }],
   [
     'Nila Builders & Developers',
@@ -141,7 +153,7 @@ const CLIENT_ROWS: ClientRow[] = [
     'Malappuram',
     ['gst_filing', 'it_audit', 'tds', 'project_report'],
   ],
-  ['Thejas Electricals', 'Proprietorship', 'Electrical goods retail', 'Perinthalmanna', ['gst_filing', 'it_non_audit'], { freq: 'Q' }],
+  ['Thejas Electricals', 'Proprietorship', 'Electrical goods retail', 'Perinthalmanna', ['gst_filing', 'it_non_audit', 'legal_metrology'], { freq: 'Q' }],
   ['Coastal Cashew Company', 'Partnership', 'Cashew processing', 'Kollam', ['gst_filing', 'it_audit', 'eway', 'pf', 'esi']],
   ['Ponnani Textiles', 'Proprietorship', 'Textile retail', 'Ponnani', ['gst_filing', 'it_non_audit']],
   [
@@ -160,7 +172,7 @@ const CLIENT_ROWS: ClientRow[] = [
     'Tirur',
     ['gst_filing', 'it_audit', 'tds', 'eway', 'pf', 'esi'],
   ],
-  ['Aura Dental Clinic', 'Proprietorship', 'Dental clinic', 'Kottakkal', ['it_non_audit', 'tds'], { profession: 'Doctor' }],
+  ['Aura Dental Clinic', 'Proprietorship', 'Dental clinic', 'Kottakkal', ['it_non_audit', 'tds', 'tan_application'], { profession: 'Doctor' }],
   ['Kerala Timber Mart', 'Proprietorship', 'Timber trading', 'Nilambur', ['gst_filing', 'eway', 'it_audit']],
   [
     'Bright Future Educational Trust',
@@ -170,7 +182,14 @@ const CLIENT_ROWS: ClientRow[] = [
     ['it_audit', 'internal_audit', 'tds', 'pf', 'esi'],
   ],
   ['FreshBake Foods', 'Proprietorship', 'Bakery', 'Manjeri', ['gst_registration', 'gst_filing', 'it_non_audit'], { freq: 'Q' }],
-  ['Orbit Logistics LLP', 'LLP', 'Transport & logistics', 'Palakkad', ['gst_filing', 'eway', 'tds', 'it_audit']],
+  [
+    'Orbit Logistics LLP',
+    'LLP',
+    'Transport & logistics',
+    'Palakkad',
+    ['gst_filing', 'eway', 'tds', 'it_audit', 'other'],
+    { details: { other: 'Import export code (IEC) renewal' } },
+  ],
   ['Fathima Beevi', 'Individual', 'Commission income', 'Tirur', ['it_non_audit'], { profession: 'Commission agent' }],
   ['Metro Steel Agencies', 'Partnership', 'Steel distribution', 'Kozhikode', ['gst_filing', 'eway', 'it_audit', 'tds']],
   [
@@ -246,6 +265,8 @@ function clients(today: string): Client[] {
         recording: { name: `call-${addDays(today, -3)}.m4a`, sizeKb: 2140 },
       })
 
+    const phone = `90000 ${String(10000 + n).slice(-5)}`
+
     return {
       id: `c-${n}`,
       code,
@@ -254,7 +275,9 @@ function clients(today: string): Client[] {
       profession: extra?.profession,
       business,
       place,
-      phone: `90000 ${String(10000 + n).slice(-5)}`,
+      phone,
+      // Some message from the number they call on, some from another, a few not at all.
+      whatsapp: i % 5 === 4 ? undefined : i % 2 ? `90001 ${String(10000 + n).slice(-5)}` : phone,
       email: `${slug}@example.com`,
       gstin: hasGst ? `32${pan}1Z${i % 9}` : undefined,
       pan,
@@ -262,6 +285,7 @@ function clients(today: string): Client[] {
       gstFrequency: hasGst ? (extra?.freq ?? 'M') : undefined,
       active: !extra?.inactive,
       scopes,
+      scopeDetails: extra?.details,
       credentials,
       documents,
       requirementsSent,
@@ -284,6 +308,7 @@ function leads(today: string): Lead[] {
       name: 'Oceanic Sea Foods',
       contact: 'Shameer',
       phone: '90000 20001',
+      whatsapp: '90000 20001',
       place: 'Beypore',
       source: 'Referral',
       category: 'Partnership',
@@ -299,10 +324,11 @@ function leads(today: string): Lead[] {
       name: 'Nisha Boutique',
       contact: 'Nisha',
       phone: '90000 20002',
+      whatsapp: '90001 20002',
       place: 'Manjeri',
       source: 'Walk-in',
       category: 'Proprietorship',
-      scopes: ['gst_registration', 'gst_filing'],
+      scopes: ['gst_registration', 'gst_filing', 'pan_application'],
       status: 'new',
       ownerId: E.shani,
       nextFollowUp: d(0),
@@ -314,6 +340,7 @@ function leads(today: string): Lead[] {
       name: 'TechNest Solutions',
       contact: 'Arun',
       phone: '90000 20003',
+      whatsapp: '90000 20003',
       place: 'Kozhikode',
       source: 'Website',
       category: 'Company',
@@ -329,6 +356,7 @@ function leads(today: string): Lead[] {
       name: 'Al Ameen Bakers',
       contact: 'Ameen',
       phone: '90000 20004',
+      whatsapp: '90000 20004',
       place: 'Tirur',
       source: 'Phone call',
       category: 'Proprietorship',
@@ -347,6 +375,7 @@ function leads(today: string): Lead[] {
       name: 'Royal Granites',
       contact: 'Basheer',
       phone: '90000 20005',
+      whatsapp: '90000 20005',
       place: 'Malappuram',
       source: 'Existing client',
       category: 'Partnership',
@@ -380,6 +409,7 @@ function leads(today: string): Lead[] {
       name: 'Harvest Organic Farms',
       contact: 'Jithin',
       phone: '90000 20007',
+      whatsapp: '90000 20007',
       place: 'Wayanad',
       source: 'WhatsApp',
       category: 'LLP',
@@ -575,7 +605,7 @@ function gst(cs: Client[]): GstFiling[] {
   filers.forEach((c, i) => {
     const source: GstFiling['source'] = (['bills', 'tally', 'excel'] as const)[i % 3]
     const fee = c.category === 'Company' || c.category === 'LLP' ? 2500 : c.gstFrequency === 'Q' ? 1000 : 1500
-    for (let back = 0; back < 3; back++) {
+    for (let back = 0; back < HISTORY_MONTHS; back++) {
       const period = shiftPeriod(current, -back)
       const isCurrent = back === 0
       const [rawStage, gstr1, gstr3b, note] = isCurrent ? live[i % live.length] : (['json', 'filed', 'filed', ''] as const)
@@ -590,7 +620,8 @@ function gst(cs: Client[]): GstFiling[] {
         stage: c.active ? stage : 'awaiting',
         gstr1: c.active ? gstr1 : 'na',
         gstr3b: c.active ? gstr3b : 'na',
-        assigneeId: staff[i % staff.length],
+        // No fixed allocation: who files for a client changes from month to month.
+        assigneeId: staff[(i + (back >> 1)) % staff.length],
         prevBalance: c.active ? prevBalance : 0,
         fee: c.active ? fee : 0,
         received: c.active ? received : 0,
@@ -608,17 +639,23 @@ function tds(cs: Client[], today: string): TdsFiling[] {
     ['completed', 'pending', 'to_begin', 'to_begin'],
     ['filed', 'to_begin', 'to_begin', 'to_begin'],
   ]
+  const current = currentGstPeriod()
   return cs
     .filter((c) => c.scopes.includes('tds'))
-    .map((c, i) => ({
+    .map((c, i) => {
+      // Earlier months are deposited; the month being worked on is a mix.
+      const payments: Record<string, TdsPayment> = { [current]: i % 3 === 0 ? 'paid' : 'due' }
+      for (let back = 1; back < HISTORY_MONTHS; back++) payments[shiftPeriod(current, -back)] = 'paid'
+      return {
       id: `tds-${c.id}`,
       clientId: c.id,
       fy,
-      payment: i % 3 === 0 ? 'paid' : 'due',
+      payments,
       quarters: patterns[i % patterns.length],
       assigneeId: i % 4 === 3 ? E.ramees : E.vijeesh,
       remark: i % 3 === 1 ? 'Waiting for salary register' : '',
-    }))
+      }
+    })
 }
 
 function it(cs: Client[], today: string): ItFiling[] {
@@ -646,6 +683,7 @@ function it(cs: Client[], today: string): ItFiling[] {
         fee,
         received: status === 'completed' ? fee : done ? fee / 2 : 0,
         remark: status === 'pending' ? (audit ? 'Audit report in progress' : 'Form 16 awaited from employer') : '',
+        doneOn: done ? addDays(today, audit ? -(2 + (i % 5)) : -(58 + ((i * 3) % 20))) : undefined,
       }
     })
 }
@@ -675,6 +713,7 @@ function audits(cs: Client[], today: string): AuditFiling[] {
         assigneeId: i % 2 === 0 ? E.praveen : E.vijeesh,
         dueDate: `${y}-09-30`,
         remark: note,
+        doneOn: status === 'pending' ? undefined : addDays(today, -(4 + (i % 20))),
       })
     }
     if (c.scopes.includes('internal_audit')) {
@@ -713,7 +752,11 @@ function services(cs: Client[], today: string): ServiceJob[] {
     { party: 'Nisha Boutique', kind: 'PAN application', status: 'to_begin', committedDate: d(6), assigneeId: E.afna, fee: 500, received: 0, remark: 'Lead — needed before GST registration' },
     { party: 'Malabar Spice Traders', clientId: id('Malabar'), kind: 'Partnership formation', status: 'pending', committedDate: d(15), assigneeId: E.anna, fee: 6000, received: 3000, remark: 'Deed draft shared with partners' },
   ]
-  return rows.map((r, i) => ({ id: `s-${i + 1}`, ...r }))
+  return rows.map((r, i) => ({
+    id: `s-${i + 1}`,
+    ...r,
+    doneOn: r.status === 'completed' ? addDays(r.committedDate, -1) : r.status === 'filed' ? addDays(today, -(5 + i)) : undefined,
+  }))
 }
 
 /** Fee ledger per client, built from the same figures the trackers show. */
@@ -767,18 +810,28 @@ function consultations(cs: Client[], today: string): Consultation[] {
   return rows.map((r, i) => ({ id: `k-${i + 1}`, ...r }))
 }
 
-/** Last month and this month up to today. Sundays are off; today is left partly unmarked. */
+const hhmm = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
+
+/** The last few months up to today, with time in and out. Sundays are off; today is partly marked and nobody has left yet. */
 function attendance(emps: Employee[], today: string): Attendance {
   const out: Attendance = {}
-  const start = `${shiftPeriod(today.slice(0, 7), -1)}-01`
+  const start = `${shiftPeriod(today.slice(0, 7), -3)}-01`
   emps.forEach((e, ei) => {
-    const days: Record<string, AttendanceMark> = {}
+    const days: Record<string, AttendanceEntry> = {}
     for (let day = start, n = 0; day <= today; day = addDays(day, 1), n++) {
       const [y, m, dd] = day.split('-').map(Number)
       if (new Date(y, m - 1, dd).getDay() === 0) continue
       if (day === today && ei % 4 === 3) continue
       const k = n * 7 + ei * 13
-      days[day] = day !== today && k % 23 === 0 ? 'A' : k % 17 === 0 ? 'L' : k % 19 === 0 ? 'H' : 'P'
+      const mark = day !== today && k % 23 === 0 ? 'A' : k % 17 === 0 ? 'L' : k % 19 === 0 ? 'H' : 'P'
+      if (mark === 'A' || mark === 'L') {
+        days[day] = { mark }
+        continue
+      }
+      // In between 9:05 and 9:50, out between 5:30 and 6:15; a half day ends at lunch.
+      const timeIn = hhmm(545 + ((k * 7) % 46))
+      const timeOut = mark === 'H' ? hhmm(780 + ((k * 3) % 20)) : hhmm(1050 + ((k * 11) % 46))
+      days[day] = day === today ? { mark, in: timeIn } : { mark, in: timeIn, out: timeOut }
     }
     out[e.id] = days
   })
