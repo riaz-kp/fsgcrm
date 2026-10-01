@@ -24,13 +24,15 @@ export NODE_EXTRA_CA_CERTS=/etc/ssl/cert.pem
 
 | Screen | What it shows |
 | --- | --- |
-| Dashboard | GST progress for the month, work needing attention, upcoming deadlines, team workload, lead pipeline |
-| Tasks | Heads assign work; the assignee updates a progress bar and remarks, then submits; a head approves or sends it back |
-| Filings | The Excel trackers as editable tables: GST (monthly), TDS (quarterly), income tax (yearly), audit, one-time services |
-| Deadlines | Calendar of statutory dates worked out from each client's scopes, plus task due dates and lead follow-ups |
-| Clients | Details, scope-of-work checkmarks, portal logins, documents, and the work in progress for each client |
+| Dashboard | Tasks due today and the count in each status, a today's-tasks box per person, work needing attention, GST progress, deadlines, birthday wishes, and the CEO's consultations |
+| Tasks | Heads assign work; the assignee updates a progress bar and remarks, then submits; a head approves or sends it back. Only the CEO and heads see everyone's tasks |
+| Deadlines | Calendar of statutory dates worked out from each client's scopes, plus task due dates, lead follow-ups and consultations |
+| Consultations | The CEO's consulting schedule, with reminders the day before and on the day (CEO and heads only) |
+| GST, TDS, Income tax, Audit, One-time | The Excel trackers as editable tables, one sidebar entry each |
+| Clients | Details, scope checkmarks with "requirement sent", clarifications (call summary and recording), fee ledger, portal logins, documents, work in progress |
 | Leads | Enquiry → follow-up → won / lost, with remarks; a won lead converts to a client |
-| Team | Who reports to whom and how much each person has open |
+| Team | Photo, date of joining, birthday, who reports to whom, and workload |
+| Attendance | Daily register per person, month by month |
 
 Use the name at the bottom of the sidebar to view the demo as a different person.
 Heads can assign and approve; trainees see their own work. "Reset sample data"

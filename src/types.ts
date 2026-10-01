@@ -11,6 +11,10 @@ export interface Employee {
   email: string
   hue: number
   active: boolean
+  joined?: string
+  dob?: string
+  /** Small data-URL image, resized in the browser before saving. */
+  photo?: string
 }
 
 export type ClientCategory =
@@ -24,6 +28,7 @@ export type ClientCategory =
 export type ScopeKey =
   | 'gst_registration'
   | 'gst_filing'
+  | 'annual_return'
   | 'incorporation'
   | 'it_non_audit'
   | 'it_audit'
@@ -76,7 +81,32 @@ export interface Client {
   scopes: ScopeKey[]
   credentials: Credential[]
   documents: ClientDoc[]
+  /** Date the requirement list for a scope was sent to the client. */
+  requirementsSent: Partial<Record<ScopeKey, string>>
+  clarifications: Clarification[]
+  transactions: Transaction[]
   since: string
+}
+
+export interface Clarification {
+  id: string
+  scope: ScopeKey | 'general'
+  at: string
+  by: string
+  summary: string
+  recording?: { name: string; sizeKb: number }
+}
+
+export type PaymentMode = 'Cash' | 'UPI' | 'Bank transfer' | 'Cheque'
+
+export interface Transaction {
+  id: string
+  date: string
+  /** A charge raises what the client owes; a payment reduces it. */
+  kind: 'charge' | 'payment'
+  description: string
+  amount: number
+  mode?: PaymentMode
 }
 
 export interface Remark {
@@ -183,6 +213,8 @@ export interface AuditFiling {
   kind: 'Tax audit' | 'Statutory audit' | 'Internal audit' | 'Nil audit'
   status: SimpleStatus
   reconciliation: boolean
+  /** Tracked for internal audits only. */
+  dataReceived: boolean
   assigneeId: string
   dueDate: string
   remark: string
@@ -197,12 +229,19 @@ export type ServiceKind =
   | 'Trademark'
   | 'FSSAI'
   | 'DSC'
+  | 'Legal metrology'
+  | 'Certification'
+  | 'TAN application'
+  | 'PAN application'
+  | 'Other'
 
 export interface ServiceJob {
   id: string
   party: string
   clientId?: string
   kind: ServiceKind
+  /** Which certificate, what "other" means, and so on. */
+  details?: string
   status: SimpleStatus
   committedDate: string
   assigneeId: string
@@ -210,3 +249,25 @@ export interface ServiceJob {
   received: number
   remark: string
 }
+
+/* ---------- Consultations & attendance ---------- */
+
+export type ConsultMode = 'In person' | 'Phone' | 'Video'
+
+export interface Consultation {
+  id: string
+  withName: string
+  clientId?: string
+  date: string
+  time: string // HH:MM, 24h
+  durationMin: number
+  topic: string
+  mode: ConsultMode
+  status: 'scheduled' | 'done' | 'cancelled'
+  notes: string
+}
+
+export type AttendanceMark = 'P' | 'H' | 'L' | 'A'
+
+/** employee id -> date -> mark */
+export type Attendance = Record<string, Record<string, AttendanceMark>>

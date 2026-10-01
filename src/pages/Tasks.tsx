@@ -5,7 +5,7 @@ import { Due, RecurringTag } from '../components/bits'
 import { Avatar, Badge, Button, Card, Drawer, Empty, Field, IconButton, Input, Modal, PageHeader, Person, Progress, Segmented, Select, StatusSelect, Td, Textarea, Th, TONE_BAR } from '../components/ui'
 import { addDays, cn, daysUntil, fmtDate, todayISO } from '../lib/format'
 import { DEPARTMENTS, PRIORITIES, PRIORITY_ORDER, TASK_STATUS, TASK_STATUS_ORDER, options } from '../lib/meta'
-import { isHead, useCurrentUser, useLookup, useStore } from '../store'
+import { isHead, useCurrentUser, useLookup, useStore, useVisibleTasks } from '../store'
 import type { Department, Priority, Recurrence, Task, TaskStatus } from '../types'
 
 function progressTone(t: Task) {
@@ -279,7 +279,7 @@ function TaskDrawer({ task, onClose }: { task: Task; onClose: () => void }) {
               const by = emp(r.by)
               return (
                 <li key={r.id} className="flex gap-3">
-                  <Avatar name={by?.name ?? '?'} hue={by?.hue} size={26} />
+                  <Avatar name={by?.name ?? '?'} hue={by?.hue} photo={by?.photo} size={26} />
                   <div className="min-w-0">
                     <p className="text-xs text-ink-500">
                       <span className="font-semibold text-ink-800">{by?.name}</span> · {fmtDate(r.at)}
@@ -342,7 +342,7 @@ type StatusTab = 'open' | TaskStatus
 export default function Tasks() {
   const me = useCurrentUser()
   const head = isHead(me)
-  const tasks = useStore((s) => s.tasks)
+  const tasks = useVisibleTasks()
   const employees = useStore((s) => s.employees)
   const clients = useStore((s) => s.clients)
   const { emp } = useLookup()
@@ -350,7 +350,7 @@ export default function Tasks() {
   const nameOf = (t: Task) => (t.clientId && clientName.get(t.clientId)) || 'Internal'
   const [params, setParams] = useSearchParams()
   const preset = params.get('assignee') ?? ''
-  const [mineOnly, setMineOnly] = useState<'mine' | 'all'>(head || preset ? 'all' : 'mine')
+  const [mineOnly, setMineOnly] = useState<'mine' | 'all'>('all')
   const [tab, setTab] = useState<StatusTab>('open')
   const [dept, setDept] = useState<Department | ''>('')
   const [assignee, setAssignee] = useState(preset)
@@ -383,7 +383,7 @@ export default function Tasks() {
     <>
       <PageHeader
         title="Tasks"
-        subtitle={head ? 'Assign work, follow progress and approve what is submitted.' : 'Work assigned to you. Update progress and submit when done.'}
+        subtitle={head ? 'Assign work, follow progress and approve what is submitted.' : 'Only the work assigned to you. Update progress and submit when done.'}
         actions={
           <>
             <Segmented
@@ -404,14 +404,16 @@ export default function Tasks() {
       />
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <Segmented
-          value={mineOnly}
-          onChange={setMineOnly}
-          items={[
-            { value: 'mine', label: 'My tasks' },
-            { value: 'all', label: 'Everyone' },
-          ]}
-        />
+        {head && (
+          <Segmented
+            value={mineOnly}
+            onChange={setMineOnly}
+            items={[
+              { value: 'all', label: 'Everyone' },
+              { value: 'mine', label: 'My tasks' },
+            ]}
+          />
+        )}
         {view === 'list' && (
           <Segmented
             value={tab}
@@ -444,7 +446,7 @@ export default function Tasks() {
               </option>
             ))}
           </Select>
-          {mineOnly === 'all' && (
+          {head && mineOnly === 'all' && (
             <Select value={assignee} onChange={(e) => setAssignee(e.target.value)} fit aria-label="Assignee">
               <option value="">Anyone</option>
               {employees.map((e) => (
@@ -551,7 +553,7 @@ export default function Tasks() {
                           <div className="mt-2.5 flex items-center gap-2">
                             <Progress value={t.progress} tone={progressTone(t)} className="flex-1" />
                             <span className="tnum text-xs font-semibold text-ink-500">{t.progress}%</span>
-                            {a && <Avatar name={a.name} hue={a.hue} size={22} />}
+                            {a && <Avatar name={a.name} hue={a.hue} photo={a?.photo} size={22} />}
                           </div>
                         </button>
                       )

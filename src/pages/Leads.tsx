@@ -215,7 +215,7 @@ function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void }) {
               const by = emp(r.by)
               return (
                 <li key={r.id} className="flex gap-3">
-                  <Avatar name={by?.name ?? '?'} hue={by?.hue} size={26} />
+                  <Avatar name={by?.name ?? '?'} hue={by?.hue} photo={by?.photo} size={26} />
                   <div className="min-w-0">
                     <p className="text-xs text-ink-500">
                       <span className="font-semibold text-ink-800">{by?.name}</span> · {fmtDate(r.at)}
@@ -271,7 +271,7 @@ function LeadCard({ lead, onOpen }: { lead: Lead; onOpen: () => void }) {
             {lead.contact} · {lead.place}
           </p>
         </div>
-        {owner && <Avatar name={owner.name} hue={owner.hue} size={24} />}
+        {owner && <Avatar name={owner.name} hue={owner.hue} photo={owner?.photo} size={24} />}
       </div>
       <div className="mt-2.5">
         <ScopeChips scopes={lead.scopes} max={3} />

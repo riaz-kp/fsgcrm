@@ -1,16 +1,22 @@
 import {
   Bell,
   Building2,
+  CalendarCheck,
   CalendarDays,
   Check,
   ChevronsUpDown,
-  ClipboardCheck,
+  Clock,
+  FileCheck2,
+  Landmark,
   LayoutDashboard,
   ListTodo,
   Menu,
   Plus,
+  Receipt,
   RotateCcw,
+  ScrollText,
   Search,
+  Stamp,
   Target,
   UserPlus,
   Users,
@@ -19,9 +25,9 @@ import {
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { statutoryDeadlines } from '../lib/deadlines'
-import { addDays, cn, daysUntil, fmtDate, relDue, todayISO } from '../lib/format'
+import { addDays, cn, daysUntil, fmtDate, fmtTime, relDue, todayISO } from '../lib/format'
 import { DEPARTMENTS, ROLES } from '../lib/meta'
-import { isHead, useCurrentUser, useStore } from '../store'
+import { isHead, useCurrentUser, useStore, useVisibleTasks } from '../store'
 import { Avatar, Badge, Button, IconButton } from './ui'
 
 /** Close a popover when the user clicks elsewhere or presses Escape. */
@@ -96,7 +102,7 @@ function UserSwitcher() {
                   }}
                   className="flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left hover:bg-ink-50"
                 >
-                  <Avatar name={e.name} hue={e.hue} size={28} />
+                  <Avatar name={e.name} hue={e.hue} photo={e?.photo} size={28} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[13px] font-semibold text-ink-800">{e.name}</span>
                     <span className="block truncate text-xs text-ink-500">{e.title}</span>
@@ -124,7 +130,7 @@ function UserSwitcher() {
         aria-expanded={open}
         className="flex w-full items-center gap-2.5 rounded-xl p-2 text-left ring-1 ring-ink-200 transition-colors hover:bg-ink-50"
       >
-        <Avatar name={me.name} hue={me.hue} size={34} />
+        <Avatar name={me.name} hue={me.hue} photo={me?.photo} size={34} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] font-bold text-ink-900">{me.name}</span>
           <span className="block truncate text-xs text-ink-500">{me.title}</span>
@@ -142,7 +148,7 @@ function GlobalSearch() {
   const navigate = useNavigate()
   const clients = useStore((s) => s.clients)
   const leads = useStore((s) => s.leads)
-  const tasks = useStore((s) => s.tasks)
+  const tasks = useVisibleTasks()
 
   const results = useMemo(() => {
     const term = q.trim().toLowerCase()
@@ -219,11 +225,38 @@ function Reminders() {
   const tasks = useStore((s) => s.tasks)
   const leads = useStore((s) => s.leads)
   const clients = useStore((s) => s.clients)
+  const employees = useStore((s) => s.employees)
+  const consultations = useStore((s) => s.consultations)
 
   const items = useMemo(() => {
     const today = todayISO()
     const head = isHead(me)
     const out: Array<{ key: string; title: string; sub: string; when: string; urgent: boolean; to: string }> = []
+
+    // The CEO's consultation diary: today's and tomorrow's appointments.
+    if (me.role === 'ceo')
+      for (const c of consultations) {
+        if (c.status !== 'scheduled' || daysUntil(c.date) < 0 || daysUntil(c.date) > 1) continue
+        out.push({
+          key: c.id,
+          title: `${fmtTime(c.time)} · ${c.withName}`,
+          sub: `Consultation ${daysUntil(c.date) === 0 ? 'today' : 'tomorrow'} · ${c.topic}`,
+          when: `${c.date} ${c.time}`,
+          urgent: daysUntil(c.date) === 0,
+          to: '/consultations',
+        })
+      }
+    for (const e of employees) {
+      if (e.dob?.slice(5) !== today.slice(5)) continue
+      out.push({
+        key: `b-${e.id}`,
+        title: e.id === me.id ? 'Happy birthday!' : `It's ${e.name}'s birthday today`,
+        sub: e.id === me.id ? 'From everyone at FSG' : 'Wish them a happy birthday',
+        when: today,
+        urgent: false,
+        to: '/team',
+      })
+    }
 
     for (const t of tasks) {
       if (t.status === 'completed') continue
@@ -250,7 +283,7 @@ function Reminders() {
       })
     }
     return out.sort((a, b) => Number(b.urgent) - Number(a.urgent) || a.when.localeCompare(b.when))
-  }, [tasks, leads, clients, me])
+  }, [tasks, leads, clients, employees, consultations, me])
 
   return (
     <div ref={ref} className="relative">
@@ -341,10 +374,12 @@ export default function Layout() {
   const [navOpen, setNavOpen] = useState(false)
   const location = useLocation()
   const me = useCurrentUser()
-  const tasks = useStore((s) => s.tasks)
+  const tasks = useVisibleTasks()
   const leads = useStore((s) => s.leads)
+  const consultations = useStore((s) => s.consultations)
 
-  const openTasks = tasks.filter((t) => t.status !== 'completed' && (isHead(me) || t.assigneeId === me.id)).length
+  const openTasks = tasks.filter((t) => t.status !== 'completed').length
+  const consultsToday = consultations.filter((c) => c.status === 'scheduled' && c.date === todayISO()).length
   const openLeads = leads.filter((l) => l.status === 'new' || l.status === 'followup').length
   const closeNav = () => setNavOpen(false)
 
@@ -379,8 +414,17 @@ export default function Layout() {
         <nav className="scroll-thin flex-1 space-y-0.5 overflow-y-auto px-3 py-2">
           <NavItem to="/" icon={<LayoutDashboard size={17} />} label="Dashboard" onNavigate={closeNav} />
           <NavItem to="/tasks" icon={<ListTodo size={17} />} label="Tasks" count={openTasks} onNavigate={closeNav} />
-          <NavItem to="/compliance" icon={<ClipboardCheck size={17} />} label="Filings" onNavigate={closeNav} />
           <NavItem to="/calendar" icon={<CalendarDays size={17} />} label="Deadlines" onNavigate={closeNav} />
+          {isHead(me) && (
+            <NavItem to="/consultations" icon={<Clock size={17} />} label="Consultations" count={consultsToday} onNavigate={closeNav} />
+          )}
+
+          <p className="px-2.5 pt-5 pb-1.5 text-[11px] font-bold tracking-wider text-ink-400 uppercase">Filings</p>
+          <NavItem to="/filings/gst" icon={<Receipt size={17} />} label="GST" onNavigate={closeNav} />
+          <NavItem to="/filings/tds" icon={<ScrollText size={17} />} label="TDS" onNavigate={closeNav} />
+          <NavItem to="/filings/it" icon={<Landmark size={17} />} label="Income tax" onNavigate={closeNav} />
+          <NavItem to="/filings/audit" icon={<FileCheck2 size={17} />} label="Audit" onNavigate={closeNav} />
+          <NavItem to="/filings/services" icon={<Stamp size={17} />} label="One-time" onNavigate={closeNav} />
 
           <p className="px-2.5 pt-5 pb-1.5 text-[11px] font-bold tracking-wider text-ink-400 uppercase">Relationships</p>
           <NavItem to="/clients" icon={<Building2 size={17} />} label="Clients" onNavigate={closeNav} />
@@ -388,6 +432,7 @@ export default function Layout() {
 
           <p className="px-2.5 pt-5 pb-1.5 text-[11px] font-bold tracking-wider text-ink-400 uppercase">Firm</p>
           <NavItem to="/team" icon={<Users size={17} />} label="Team" onNavigate={closeNav} />
+          <NavItem to="/attendance" icon={<CalendarCheck size={17} />} label="Attendance" onNavigate={closeNav} />
         </nav>
 
         <div className="p-3">

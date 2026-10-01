@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Badge, Button, Card, CardHeader, Empty, IconButton, PageHeader, TONE_BAR } from '../components/ui'
 import { statutoryDeadlines } from '../lib/deadlines'
-import { addDays, cn, daysUntil, fmtDate, parseISO, periodLabel, relDue, shiftPeriod, toISO, todayISO } from '../lib/format'
+import { addDays, cn, daysUntil, fmtDate, fmtTime, parseISO, periodLabel, relDue, shiftPeriod, toISO, todayISO } from '../lib/format'
 import { DEPARTMENTS, type Tone } from '../lib/meta'
 import { isHead, useCurrentUser, useStore } from '../store'
 
@@ -13,7 +13,7 @@ interface CalEvent {
   title: string
   sub: string
   tone: Tone
-  kind: 'Statutory' | 'Staff cut-off' | 'Task' | 'Follow-up' | 'Committed'
+  kind: 'Statutory' | 'Staff cut-off' | 'Task' | 'Follow-up' | 'Committed' | 'Consultation'
   to: string
 }
 
@@ -35,6 +35,7 @@ function useEvents(from: string, to: string): CalEvent[] {
   const tasks = useStore((s) => s.tasks)
   const leads = useStore((s) => s.leads)
   const services = useStore((s) => s.services)
+  const consultations = useStore((s) => s.consultations)
 
   return useMemo(() => {
     const head = isHead(me)
@@ -47,9 +48,10 @@ function useEvents(from: string, to: string): CalEvent[] {
       if (!n) continue
       const tone = DEPARTMENTS[d.dept].tone
       const sub = `${d.detail} · ${n} clients${d.extendable ? ' · may be extended' : ''}`
-      if (within(d.date)) out.push({ id: d.id, date: d.date, title: d.title, sub, tone, kind: 'Statutory', to: '/compliance' })
+      const to = `/filings/${d.dept}`
+      if (within(d.date)) out.push({ id: d.id, date: d.date, title: d.title, sub, tone, kind: 'Statutory', to })
       if (d.internalDate && within(d.internalDate))
-        out.push({ id: `${d.id}-cut`, date: d.internalDate, title: `${d.title} cut-off`, sub: `Finish a day early · ${n} clients`, tone, kind: 'Staff cut-off', to: '/compliance' })
+        out.push({ id: `${d.id}-cut`, date: d.internalDate, title: `${d.title} cut-off`, sub: `Finish a day early · ${n} clients`, tone, kind: 'Staff cut-off', to })
     }
     for (const t of tasks) {
       if (t.status === 'completed' || !within(t.dueDate) || !(head || t.assigneeId === me.id)) continue
@@ -69,10 +71,15 @@ function useEvents(from: string, to: string): CalEvent[] {
     }
     for (const s of services) {
       if (s.status === 'completed' || !within(s.committedDate) || !(head || s.assigneeId === me.id)) continue
-      out.push({ id: s.id, date: s.committedDate, title: s.kind, sub: `Committed to ${s.party}`, tone: 'green', kind: 'Committed', to: '/compliance' })
+      out.push({ id: s.id, date: s.committedDate, title: s.kind, sub: `Committed to ${s.party}`, tone: 'green', kind: 'Committed', to: '/filings/services' })
     }
+    if (me.role === 'ceo')
+      for (const c of consultations) {
+        if (c.status !== 'scheduled' || !within(c.date)) continue
+        out.push({ id: c.id, date: c.date, title: `${fmtTime(c.time)} ${c.withName}`, sub: c.topic, tone: 'violet', kind: 'Consultation', to: '/consultations' })
+      }
     return out.sort((a, b) => a.date.localeCompare(b.date))
-  }, [me, clients, tasks, leads, services, from, to])
+  }, [me, clients, tasks, leads, services, consultations, from, to])
 }
 
 export default function Calendar() {

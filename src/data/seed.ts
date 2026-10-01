@@ -4,8 +4,11 @@
  */
 import { addDays, currentGstPeriod, financialYear, periodLabel, shiftPeriod, todayISO } from '../lib/format'
 import type {
+  Attendance,
+  AttendanceMark,
   AuditFiling,
   Client,
+  Consultation,
   ClientCategory,
   ClientDoc,
   Credential,
@@ -33,6 +36,8 @@ export interface SeedData {
   it: ItFiling[]
   audits: AuditFiling[]
   services: ServiceJob[]
+  consultations: Consultation[]
+  attendance: Attendance
 }
 
 const E = {
@@ -47,8 +52,28 @@ const E = {
   shani: 'e-shani',
 } as const
 
-function employees(): Employee[] {
+function employees(today: string): Employee[] {
+  let n = 0
   const mk = (
+    id: string,
+    name: string,
+    title: string,
+    role: Employee['role'],
+    hue: number,
+    responsibilities: string[],
+    reportsTo?: string,
+  ): Employee => {
+    const i = n++
+    // Placeholder dates so the demo has something to show. One birthday lands
+    // today and one later this week; replace with the real ones.
+    const birthday = i === 4 ? today : i === 7 ? addDays(today, 5) : addDays(today, 40 + i * 37)
+    return {
+      joined: addDays(today, -(2400 - i * 260)),
+      dob: `${1984 + i * 2}${birthday.slice(4)}`,
+      ...base(id, name, title, role, hue, responsibilities, reportsTo),
+    }
+  }
+  const base = (
     id: string,
     name: string,
     title: string,
@@ -164,8 +189,11 @@ const CLIENT_ROWS: ClientRow[] = [
 ]
 
 function clients(today: string): Client[] {
-  return CLIENT_ROWS.map(([name, category, business, place, scopes, extra], i) => {
+  return CLIENT_ROWS.map(([name, category, business, place, rowScopes, extra], i) => {
     const n = 1001 + i
+    // Companies, LLPs and partnerships on GST also file the annual return.
+    const scopes: ScopeKey[] =
+      rowScopes.includes('gst_filing') && category !== 'Proprietorship' ? [...rowScopes, 'annual_return'] : rowScopes
     const code = `FSG-${n}`
     const pan = `DEMOP${n}X`
     const tan = `DEMO${10000 + i}T`
@@ -194,6 +222,30 @@ function clients(today: string): Client[] {
     if (hasGst && i % 3 === 0) doc('Tally backup Sep.zip', 'Tally backup', 184_000, 2)
     if (hasGst && i % 3 === 1) doc('Purchase & sales bills Sep.zip', 'Bills', 96_000, 3)
 
+    const requirementsSent: Client['requirementsSent'] = {}
+    scopes.forEach((s, k) => {
+      if ((i + k) % 3 !== 0) requirementsSent[s] = addDays(today, -(18 + k * 4))
+    })
+
+    const clarifications: Client['clarifications'] = []
+    if (i % 4 === 0)
+      clarifications.push({
+        id: `${code}-q0`,
+        scope: 'general',
+        at: addDays(today, -6),
+        by: E.shani,
+        summary: 'Client asked for one consolidated fee statement each month instead of separate messages per filing.',
+      })
+    if (i % 4 === 1)
+      clarifications.push({
+        id: `${code}-q1`,
+        scope: scopes[0],
+        at: addDays(today, -3),
+        by: E.anna,
+        summary: 'Called about two purchase bills with a mismatched GSTIN. Client will get corrected bills from the supplier this week.',
+        recording: { name: `call-${addDays(today, -3)}.m4a`, sizeKb: 2140 },
+      })
+
     return {
       id: `c-${n}`,
       code,
@@ -212,6 +264,9 @@ function clients(today: string): Client[] {
       scopes,
       credentials,
       documents,
+      requirementsSent,
+      clarifications,
+      transactions: [],
       since: addDays(today, -(900 - i * 28)),
     }
   })
@@ -457,11 +512,11 @@ function tasks(today: string, cs: Client[]): Task[] {
       remarks: [remark(E.henna, d(-2), 'Clarification raised on rental agreement. Reply filed with fresh NOC.')],
     }),
     t('GST registration documents collection', 'Skyline Interiors', 'registration', E.henna, E.anna, 'medium', 'to_begin', 0, 6),
-    t('DSC renewal for both directors', 'Zenith Infotech', 'registration', E.afna, E.praveen, 'medium', 'in_progress', 50, 5, {
+    t('DSC renewal for both directors', 'Zenith Infotech', 'registration', E.afna, E.praveen, 'medium', 'in_progress', 50, 0, {
       remarks: [remark(E.afna, d(-1), 'One director video verification done. Second pending.')],
     }),
     t('DSC for designated partners', 'Skyline Interiors', 'registration', E.afna, E.anna, 'low', 'completed', 100, -5),
-    t('TDS payment challan — September', 'Lakeview Resorts', 'tds', E.vijeesh, E.vijeesh, 'urgent', 'in_progress', 50, 6, {
+    t('TDS payment challan — September', 'Lakeview Resorts', 'tds', E.vijeesh, E.vijeesh, 'urgent', 'in_progress', 50, 0, {
       recurring: 'monthly',
     }),
     t('TDS return Q2 — 24Q and 26Q', 'Sahara Hypermarket', 'tds', E.vijeesh, E.vijeesh, 'high', 'to_begin', 0, 30, {
@@ -475,7 +530,7 @@ function tasks(today: string, cs: Client[]): Task[] {
       description: 'Statutory date has passed; filing under the extended window.',
       remarks: [remark(E.praveen, d(-1), 'Stock valuation note pending from client. Rest of 3CD complete.')],
     }),
-    t('Reconciliation — 26AS vs books', 'Coastal Cashew', 'audit', E.husni, E.praveen, 'high', 'in_review', 100, 2, {
+    t('Reconciliation — 26AS vs books', 'Coastal Cashew', 'audit', E.husni, E.praveen, 'high', 'in_review', 100, 0, {
       remarks: [remark(E.husni, d(0), 'Reconciled. Two TDS entries not reflecting in 26AS, noted in sheet.')],
     }),
     t('ITR — audit case filing', 'Kerala Timber Mart', 'it', E.vijeesh, E.vijeesh, 'high', 'to_begin', 0, 28, { recurring: 'yearly' }),
@@ -492,7 +547,7 @@ function tasks(today: string, cs: Client[]): Task[] {
     }),
     t('MSME (Udyam) registration', 'FreshBake Foods', 'registration', E.anna, E.praveen, 'low', 'completed', 100, -8),
     t('LLP incorporation — file FiLLiP', 'Skyline Interiors', 'registration', E.anna, E.praveen, 'high', 'completed', 100, -12),
-    t('Call back new enquiries from this week', undefined, 'general', E.shani, E.praveen, 'medium', 'in_progress', 35, 1),
+    t('Call back new enquiries from this week', undefined, 'general', E.shani, E.praveen, 'medium', 'in_progress', 35, 0),
     t('Send fee reminder to clients with balance over ₹5,000', undefined, 'general', E.shani, E.praveen, 'low', 'to_begin', 0, 4),
     t('E-way bill portal — reset password', 'Kerala Timber Mart', 'gst', E.hari, E.anna, 'low', 'completed', 100, -3),
   ]
@@ -616,6 +671,7 @@ function audits(cs: Client[], today: string): AuditFiling[] {
         kind: c.category === 'Company' ? 'Statutory audit' : 'Tax audit',
         status,
         reconciliation,
+        dataReceived: true,
         assigneeId: i % 2 === 0 ? E.praveen : E.vijeesh,
         dueDate: `${y}-09-30`,
         remark: note,
@@ -629,6 +685,7 @@ function audits(cs: Client[], today: string): AuditFiling[] {
         kind: 'Internal audit',
         status: i % 2 === 0 ? 'pending' : 'to_begin',
         reconciliation: false,
+        dataReceived: i % 2 === 0,
         assigneeId: E.praveen,
         dueDate: `${y}-10-31`,
         remark: i % 2 === 0 ? 'Q2 vouching under way' : '',
@@ -650,23 +707,99 @@ function services(cs: Client[], today: string): ServiceJob[] {
     { party: 'Zenith Infotech Pvt Ltd', clientId: id('Zenith'), kind: 'DSC', status: 'pending', committedDate: d(5), assigneeId: E.afna, fee: 2400, received: 2400, remark: 'One director verified' },
     { party: 'Greenleaf Ayurveda LLP', clientId: id('Greenleaf'), kind: 'Trademark', status: 'filed', committedDate: d(-20), assigneeId: E.anna, fee: 8500, received: 8500, remark: 'Under examination' },
     { party: 'Harvest Organic Farms', kind: 'LLP incorporation', status: 'to_begin', committedDate: d(18), assigneeId: E.anna, fee: 12000, received: 0, remark: 'Lead — starts once name options are confirmed' },
+    { party: 'Thejas Electricals', clientId: id('Thejas'), kind: 'Legal metrology', details: 'Weighing scale verification and stamping', status: 'pending', committedDate: d(7), assigneeId: E.henna, fee: 2000, received: 0, remark: 'Inspection slot requested' },
+    { party: 'Greenleaf Ayurveda LLP', clientId: id('Greenleaf'), kind: 'Certification', details: 'ISO 9001 and GMP certificate renewal', status: 'to_begin', committedDate: d(25), assigneeId: E.anna, fee: 15000, received: 5000, remark: '' },
+    { party: 'Aura Dental Clinic', clientId: id('Aura'), kind: 'TAN application', status: 'filed', committedDate: d(3), assigneeId: E.afna, fee: 800, received: 800, remark: 'Acknowledgement received' },
+    { party: 'Nisha Boutique', kind: 'PAN application', status: 'to_begin', committedDate: d(6), assigneeId: E.afna, fee: 500, received: 0, remark: 'Lead — needed before GST registration' },
     { party: 'Malabar Spice Traders', clientId: id('Malabar'), kind: 'Partnership formation', status: 'pending', committedDate: d(15), assigneeId: E.anna, fee: 6000, received: 3000, remark: 'Deed draft shared with partners' },
   ]
   return rows.map((r, i) => ({ id: `s-${i + 1}`, ...r }))
 }
 
+/** Fee ledger per client, built from the same figures the trackers show. */
+function ledger(cs: Client[], data: Pick<SeedData, 'gst' | 'it' | 'services'>, today: string) {
+  const period = currentGstPeriod()
+  const modes = ['UPI', 'Bank transfer', 'Cash', 'UPI', 'Cheque'] as const
+  cs.forEach((c, i) => {
+    const out: Client['transactions'] = []
+    const add = (daysAgo: number, kind: 'charge' | 'payment', description: string, amount: number) => {
+      if (amount <= 0) return
+      out.push({
+        id: `${c.code}-x${out.length}`,
+        date: addDays(today, -daysAgo),
+        kind,
+        description,
+        amount,
+        mode: kind === 'payment' ? modes[(i + out.length) % modes.length] : undefined,
+      })
+    }
+    const itRow = data.it.find((r) => r.clientId === c.id)
+    if (itRow && (itRow.status === 'filed' || itRow.status === 'completed')) {
+      add(62, 'charge', `Income tax return · AY ${itRow.ay}`, itRow.fee)
+      add(55, 'payment', 'Received for income tax return', itRow.received)
+    }
+    const g = data.gst.find((r) => r.clientId === c.id && r.period === period)
+    if (g) {
+      add(31, 'charge', `GST filing · ${periodLabel(shiftPeriod(period, -1))} (carried forward)`, g.prevBalance)
+      add(1, 'charge', `GST filing · ${periodLabel(period)}`, g.fee)
+      add(0, 'payment', 'Received for GST filing', g.received)
+    }
+    for (const s of data.services) {
+      if (s.clientId !== c.id || s.status === 'to_begin') continue
+      add(20, 'charge', s.kind, s.fee)
+      add(14, 'payment', `Received for ${s.kind}`, s.received)
+    }
+    c.transactions = out.sort((a, b) => b.date.localeCompare(a.date))
+  })
+}
+
+function consultations(cs: Client[], today: string): Consultation[] {
+  const d = (n: number) => addDays(today, n)
+  const id = (name: string) => cs.find((x) => x.name.startsWith(name))?.id
+  const rows: Array<Omit<Consultation, 'id'>> = [
+    { withName: 'Lakeview Resorts Pvt Ltd', clientId: id('Lakeview'), date: d(-1), time: '15:00', durationMin: 45, topic: 'Advance tax estimate for Q3', mode: 'Video', status: 'done', notes: 'Shared working. They will pay by the 15th.' },
+    { withName: 'Royal Granites', date: d(0), time: '11:00', durationMin: 60, topic: 'Project report for term loan and audit takeover', mode: 'In person', status: 'scheduled', notes: 'Lead. Bring last two years financials.' },
+    { withName: 'Kadalundi Marine Exports Pvt Ltd', clientId: id('Kadalundi'), date: d(0), time: '16:30', durationMin: 30, topic: 'Export refund under GST', mode: 'Phone', status: 'scheduled', notes: '' },
+    { withName: 'Zenith Infotech Pvt Ltd', clientId: id('Zenith'), date: d(1), time: '10:30', durationMin: 45, topic: 'ESOP tax treatment for employees', mode: 'Video', status: 'scheduled', notes: '' },
+    { withName: 'Bright Future Educational Trust', clientId: id('Bright Future'), date: d(3), time: '14:00', durationMin: 60, topic: '12A / 80G renewal and internal audit scope', mode: 'In person', status: 'scheduled', notes: '' },
+    { withName: 'Dr. Anjali Menon', clientId: id('Dr. Anjali'), date: d(6), time: '17:30', durationMin: 30, topic: 'Tax planning before year end', mode: 'Phone', status: 'scheduled', notes: '' },
+  ]
+  return rows.map((r, i) => ({ id: `k-${i + 1}`, ...r }))
+}
+
+/** Last month and this month up to today. Sundays are off; today is left partly unmarked. */
+function attendance(emps: Employee[], today: string): Attendance {
+  const out: Attendance = {}
+  const start = `${shiftPeriod(today.slice(0, 7), -1)}-01`
+  emps.forEach((e, ei) => {
+    const days: Record<string, AttendanceMark> = {}
+    for (let day = start, n = 0; day <= today; day = addDays(day, 1), n++) {
+      const [y, m, dd] = day.split('-').map(Number)
+      if (new Date(y, m - 1, dd).getDay() === 0) continue
+      if (day === today && ei % 4 === 3) continue
+      const k = n * 7 + ei * 13
+      days[day] = day !== today && k % 23 === 0 ? 'A' : k % 17 === 0 ? 'L' : k % 19 === 0 ? 'H' : 'P'
+    }
+    out[e.id] = days
+  })
+  return out
+}
+
 export function buildSeed(): SeedData {
   const today = todayISO()
   const cs = clients(today)
+  const emps = employees(today)
+  const data = { gst: gst(cs), it: it(cs, today), services: services(cs, today) }
+  ledger(cs, data, today)
   return {
-    employees: employees(),
+    employees: emps,
     clients: cs,
     leads: leads(today),
     tasks: tasks(today, cs),
-    gst: gst(cs),
+    ...data,
     tds: tds(cs, today),
-    it: it(cs, today),
     audits: audits(cs, today),
-    services: services(cs, today),
+    consultations: consultations(cs, today),
+    attendance: attendance(emps, today),
   }
 }

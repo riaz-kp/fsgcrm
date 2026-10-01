@@ -1,10 +1,13 @@
+import { useMemo } from 'react'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { buildSeed, type SeedData } from './data/seed'
 import { currentGstPeriod, todayISO, uid } from './lib/format'
 import type {
+  AttendanceMark,
   AuditFiling,
   Client,
+  Consultation,
   Employee,
   GstFiling,
   ItFiling,
@@ -19,7 +22,7 @@ interface Actions {
   setCurrentUser: (id: string) => void
   resetDemo: () => void
 
-  addClient: (c: Omit<Client, 'id' | 'code' | 'since'>) => string
+  addClient: (c: Omit<Client, 'id' | 'code' | 'since' | 'requirementsSent' | 'clarifications' | 'transactions'>) => string
   updateClient: (id: string, patch: Partial<Client>) => void
   toggleScope: (id: string, scope: ScopeKey) => void
 
@@ -40,6 +43,13 @@ interface Actions {
   addService: (s: Omit<ServiceJob, 'id'>) => void
 
   addEmployee: (e: Omit<Employee, 'id' | 'hue' | 'active'>) => void
+  updateEmployee: (id: string, patch: Partial<Employee>) => void
+
+  addConsultation: (c: Omit<Consultation, 'id'>) => void
+  updateConsultation: (id: string, patch: Partial<Consultation>) => void
+
+  /** Pass no mark to clear the day. */
+  setAttendance: (employeeId: string, date: string, mark?: AttendanceMark) => void
 }
 
 export interface State extends SeedData, Actions {
@@ -64,7 +74,12 @@ export const useStore = create<State>()(
         const { clients } = get()
         const next = Math.max(1000, ...clients.map((x) => Number(x.code.split('-')[1]) || 0)) + 1
         const id = uid('c')
-        set({ clients: [{ ...c, id, code: `FSG-${next}`, since: todayISO() }, ...clients] })
+        set({
+          clients: [
+            { ...c, id, code: `FSG-${next}`, since: todayISO(), requirementsSent: {}, clarifications: [], transactions: [] },
+            ...clients,
+          ],
+        })
         return id
       },
       updateClient: (id, patch) => set((s) => ({ clients: patchIn(s.clients, id, patch) })),
@@ -163,8 +178,25 @@ export const useStore = create<State>()(
         set((s) => ({
           employees: [...s.employees, { ...e, id: uid('e'), hue: (s.employees.length * 47 + 120) % 360, active: true }],
         })),
+      updateEmployee: (id, patch) => set((s) => ({ employees: patchIn(s.employees, id, patch) })),
+
+      addConsultation: (c) => set((s) => ({ consultations: [...s.consultations, { ...c, id: uid('k') }] })),
+      updateConsultation: (id, patch) => set((s) => ({ consultations: patchIn(s.consultations, id, patch) })),
+
+      setAttendance: (employeeId, date, mark) =>
+        set((s) => {
+          const days = { ...s.attendance[employeeId] }
+          if (mark) days[date] = mark
+          else delete days[date]
+          return { attendance: { ...s.attendance, [employeeId]: days } }
+        }),
     }),
-    { name: 'fsg-crm-demo', version: 1 },
+    {
+      name: 'fsg-crm-demo',
+      version: 2,
+      // The demo's shape changed; older saved sample data is replaced rather than patched.
+      migrate: () => ({ ...buildSeed(), currentUserId: 'e-praveen' }) as State,
+    },
   ),
 )
 
@@ -179,6 +211,13 @@ export function useCurrentUser(): Employee {
 /** Heads and the CEO allocate work and approve it; trainees report on it. */
 export function isHead(e: Employee): boolean {
   return e.role === 'ceo' || e.role === 'head'
+}
+
+/** Heads see every task; everyone else sees only what is assigned to them. */
+export function useVisibleTasks(): Task[] {
+  const me = useCurrentUser()
+  const tasks = useStore((s) => s.tasks)
+  return useMemo(() => (isHead(me) ? tasks : tasks.filter((t) => t.assigneeId === me.id)), [tasks, me])
 }
 
 export function useLookup() {

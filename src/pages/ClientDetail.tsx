@@ -7,28 +7,33 @@ import {
   FileArchive,
   FileSpreadsheet,
   FileText,
+  IndianRupee,
   KeyRound,
   Mail,
   MapPin,
+  MessageSquareText,
+  Mic,
+  Paperclip,
   Pencil,
   Phone,
   Plus,
   ShieldCheck,
   Trash2,
+  Undo2,
   Upload,
 } from 'lucide-react'
 import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Due } from '../components/bits'
 import ClientForm from '../components/ClientForm'
-import { Avatar, Badge, Button, Card, CardHeader, Empty, Field, IconButton, Input, Person, Progress, Segmented, Select, Td, Th } from '../components/ui'
+import { Avatar, Badge, Button, Card, CardHeader, Empty, Field, IconButton, Input, Person, Progress, Segmented, Select, Td, Textarea, Th } from '../components/ui'
 import { statutoryDeadlines } from '../lib/deadlines'
-import { addDays, cn, currentGstPeriod, daysUntil, fileSize, fmtDate, periodLabel, todayISO, uid } from '../lib/format'
-import { CATEGORY_TONE, DEPARTMENTS, DOC_KINDS, GST_STATUS, PORTALS, SCOPES, SIMPLE_STATUS, TASK_STATUS } from '../lib/meta'
-import { useLookup, useStore } from '../store'
-import type { Client, Credential, DocKind, Portal } from '../types'
+import { addDays, cn, currentGstPeriod, daysUntil, fileSize, fmtDate, inr, periodLabel, todayISO, uid } from '../lib/format'
+import { CATEGORY_TONE, DEPARTMENTS, DOC_KINDS, GST_STATUS, PAYMENT_MODES, PORTALS, SCOPES, SCOPE_LABEL, SIMPLE_STATUS, TASK_STATUS } from '../lib/meta'
+import { useCurrentUser, useLookup, useStore, useVisibleTasks } from '../store'
+import type { Client, Credential, DocKind, PaymentMode, Portal, ScopeKey } from '../types'
 
-type Tab = 'overview' | 'logins' | 'documents' | 'work'
+type Tab = 'overview' | 'clarifications' | 'fees' | 'logins' | 'documents' | 'work'
 
 function Detail({ icon, label, children }: { icon?: ReactNode; label: string; children: ReactNode }) {
   return (
@@ -44,12 +49,13 @@ function Detail({ icon, label, children }: { icon?: ReactNode; label: string; ch
 
 function Overview({ client }: { client: Client }) {
   const toggleScope = useStore((s) => s.toggleScope)
+  const updateClient = useStore((s) => s.updateClient)
   const groups = useMemo(() => [...new Set(SCOPES.map((s) => s.group))], [])
   const deadlines = useMemo(() => {
     const today = todayISO()
     return statutoryDeadlines(today, addDays(today, 120))
       .filter((d) => d.applies(client))
-      .slice(0, 6)
+      .slice(0, 8)
   }, [client])
 
   return (
@@ -122,6 +128,49 @@ function Overview({ client }: { client: Client }) {
               </div>
             ))}
           </div>
+        </Card>
+
+        <Card>
+          <CardHeader title="Requirements sent" hint="Whether the list of papers and data needed has gone to the client, scope by scope" />
+          {client.scopes.length === 0 ? (
+            <p className="px-5 pb-5 text-[13px] text-ink-500">Tick a scope above to track its requirement list.</p>
+          ) : (
+            <ul className="divide-y divide-ink-100 pb-2">
+              {SCOPES.filter((s) => client.scopes.includes(s.key)).map((s) => {
+                const sent = client.requirementsSent[s.key]
+                const set = (date?: string) => {
+                  const next = { ...client.requirementsSent }
+                  if (date) next[s.key] = date
+                  else delete next[s.key]
+                  updateClient(client.id, { requirementsSent: next })
+                }
+                return (
+                  <li key={s.key} className="flex items-center gap-3 px-5 py-2">
+                    <span className="min-w-0 flex-1 truncate font-semibold text-ink-800">{s.label}</span>
+                    {sent ? (
+                      <>
+                        <Badge tone="green" dot>
+                          Sent {fmtDate(sent)}
+                        </Badge>
+                        <IconButton label={`Mark ${s.label} requirement as not sent`} onClick={() => set()}>
+                          <Undo2 size={14} />
+                        </IconButton>
+                      </>
+                    ) : (
+                      <>
+                        <Badge tone="amber" dot>
+                          Not sent
+                        </Badge>
+                        <Button size="sm" onClick={() => set(todayISO())}>
+                          Mark sent
+                        </Button>
+                      </>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
         </Card>
 
         <Card>
@@ -370,7 +419,7 @@ function Documents({ client }: { client: Client }) {
 }
 
 function Work({ client }: { client: Client }) {
-  const tasks = useStore((s) => s.tasks)
+  const tasks = useVisibleTasks()
   const gst = useStore((s) => s.gst)
   const tds = useStore((s) => s.tds)
   const it = useStore((s) => s.it)
@@ -422,7 +471,7 @@ function Work({ client }: { client: Client }) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <Card>
-        <CardHeader title="Filing status" action={<Link to="/compliance" className="text-[13px] font-semibold text-brand-700 hover:underline">Open trackers</Link>} />
+        <CardHeader title="Filing status"  />
         {lines.length === 0 ? (
           <p className="px-5 pb-5 text-[13px] text-ink-500">Nothing is being tracked for this client yet.</p>
         ) : (
@@ -468,6 +517,279 @@ function Work({ client }: { client: Client }) {
         )}
       </Card>
     </div>
+  )
+}
+
+function Clarifications({ client }: { client: Client }) {
+  const me = useCurrentUser()
+  const updateClient = useStore((s) => s.updateClient)
+  const { emp } = useLookup()
+  const input = useRef<HTMLInputElement>(null)
+  const [scope, setScope] = useState<ScopeKey | 'general'>('general')
+  const [summary, setSummary] = useState('')
+  const [recording, setRecording] = useState<{ name: string; sizeKb: number }>()
+  const [filter, setFilter] = useState<ScopeKey | 'general' | 'all'>('all')
+
+  const save = () => {
+    if (!summary.trim()) return
+    const entry = { id: uid('q'), scope, at: todayISO(), by: me.id, summary: summary.trim(), recording }
+    updateClient(client.id, { clarifications: [entry, ...client.clarifications] })
+    setSummary('')
+    setRecording(undefined)
+    if (input.current) input.current.value = ''
+  }
+  const label = (s: ScopeKey | 'general') => (s === 'general' ? 'General' : SCOPE_LABEL[s])
+  const shown = client.clarifications.filter((q) => filter === 'all' || q.scope === filter)
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-5">
+      <Card className="lg:col-span-2 lg:self-start">
+        <CardHeader title="Log a clarification" hint="Call notes for one scope, or general" />
+        <div className="space-y-3 px-5 pb-5">
+          <Field label="About">
+            <Select value={scope} onChange={(e) => setScope(e.target.value as ScopeKey | 'general')}>
+              <option value="general">General</option>
+              {client.scopes.map((s) => (
+                <option key={s} value={s}>
+                  {SCOPE_LABEL[s]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Call summary">
+            <Textarea value={summary} onChange={(e) => setSummary(e.target.value)} rows={4} placeholder="Who you spoke to, what was clarified, what happens next…" />
+          </Field>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" icon={<Paperclip size={14} />} onClick={() => input.current?.click()}>
+              {recording ? 'Change recording' : 'Attach call recording'}
+            </Button>
+            <input
+              ref={input}
+              type="file"
+              accept="audio/*"
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                setRecording(f ? { name: f.name, sizeKb: Math.max(1, Math.round(f.size / 1024)) } : undefined)
+              }}
+            />
+            {recording && (
+              <span className="inline-flex min-w-0 items-center gap-1.5 text-[13px] text-ink-600">
+                <Mic size={13} className="shrink-0 text-violet-500" />
+                <span className="truncate">{recording.name}</span>
+              </span>
+            )}
+          </div>
+          <Button variant="primary" onClick={save} disabled={!summary.trim()} className="w-full">
+            Save clarification
+          </Button>
+          <p className="text-xs text-ink-500">Demo only: the recording's name and size are kept, the audio itself is not stored.</p>
+        </div>
+      </Card>
+
+      <Card className="lg:col-span-3">
+        <CardHeader
+          title="Clarifications"
+          hint={`${client.clarifications.length} logged`}
+          action={
+            <Select small fit value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)} aria-label="Filter by scope">
+              <option value="all">All scopes</option>
+              <option value="general">General</option>
+              {client.scopes.map((s) => (
+                <option key={s} value={s}>
+                  {SCOPE_LABEL[s]}
+                </option>
+              ))}
+            </Select>
+          }
+        />
+        {shown.length === 0 ? (
+          <Empty icon={<MessageSquareText size={20} />} title="Nothing logged here yet" hint="Call summaries and recordings for this client will collect here." />
+        ) : (
+          <ol className="divide-y divide-ink-100 border-t border-ink-100">
+            {shown.map((q) => {
+              const by = emp(q.by)
+              return (
+                <li key={q.id} className="flex gap-3 px-5 py-3.5">
+                  <Avatar name={by?.name ?? '?'} hue={by?.hue} photo={by?.photo} size={28} />
+                  <div className="min-w-0 flex-1">
+                    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-500">
+                      <span className="font-semibold text-ink-800">{by?.name}</span>
+                      {fmtDate(q.at, true)}
+                      <Badge tone={q.scope === 'general' ? 'neutral' : 'blue'}>{label(q.scope)}</Badge>
+                    </p>
+                    <p className="mt-1 text-sm text-ink-700">{q.summary}</p>
+                    {q.recording && (
+                      <p className="mt-2 inline-flex max-w-full items-center gap-2 rounded-lg bg-violet-50 px-2.5 py-1.5 text-[13px] font-medium text-violet-800">
+                        <Mic size={14} className="shrink-0" />
+                        <span className="truncate">{q.recording.name}</span>
+                        <span className="tnum shrink-0 text-xs text-violet-600">{fileSize(q.recording.sizeKb)}</span>
+                      </p>
+                    )}
+                  </div>
+                  <IconButton
+                    label="Remove clarification"
+                    onClick={() => updateClient(client.id, { clarifications: client.clarifications.filter((x) => x.id !== q.id) })}
+                    className="hover:text-rose-600"
+                  >
+                    <Trash2 size={15} />
+                  </IconButton>
+                </li>
+              )
+            })}
+          </ol>
+        )}
+      </Card>
+    </div>
+  )
+}
+
+function Fees({ client }: { client: Client }) {
+  const updateClient = useStore((s) => s.updateClient)
+  const [form, setForm] = useState<'charge' | 'payment' | null>(null)
+  const [f, setF] = useState({ description: '', amount: '', date: todayISO(), mode: PAYMENT_MODES[0] as PaymentMode })
+
+  // Oldest first to work out the running balance, then shown newest first.
+  const rows = useMemo(() => {
+    const sorted = [...client.transactions].sort(
+      (a, b) => a.date.localeCompare(b.date) || Number(a.kind === 'payment') - Number(b.kind === 'payment'),
+    )
+    const out: Array<(typeof sorted)[number] & { balance: number }> = []
+    for (const x of sorted) out.push({ ...x, balance: (out.at(-1)?.balance ?? 0) + (x.kind === 'charge' ? x.amount : -x.amount) })
+    return out.reverse()
+  }, [client.transactions])
+  const billed = client.transactions.reduce((s, x) => s + (x.kind === 'charge' ? x.amount : 0), 0)
+  const paid = client.transactions.reduce((s, x) => s + (x.kind === 'payment' ? x.amount : 0), 0)
+  const due = billed - paid
+
+  const open = (kind: 'charge' | 'payment') => {
+    setF({ description: '', amount: kind === 'payment' && due > 0 ? String(due) : '', date: todayISO(), mode: PAYMENT_MODES[0] })
+    setForm(kind)
+  }
+  const amount = Number(f.amount)
+  const valid = amount > 0 && f.date && (form === 'payment' || f.description.trim())
+  const save = () => {
+    if (!form || !valid) return
+    const entry = {
+      id: uid('x'),
+      date: f.date,
+      kind: form,
+      description: f.description.trim() || 'Payment received',
+      amount,
+      mode: form === 'payment' ? f.mode : undefined,
+    }
+    updateClient(client.id, { transactions: [entry, ...client.transactions] })
+    setForm(null)
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Fees & payments"
+        hint="Every fee raised and every payment received, with dates"
+        action={
+          <div className="flex gap-2">
+            <Button size="sm" icon={<Plus size={15} />} onClick={() => open('charge')}>
+              Add fee
+            </Button>
+            <Button size="sm" variant="primary" icon={<Plus size={15} />} onClick={() => open('payment')}>
+              Record payment
+            </Button>
+          </div>
+        }
+      />
+      <dl className="grid grid-cols-3 divide-x divide-ink-100 border-y border-ink-100">
+        {[
+          { label: 'Fees raised', value: billed, tone: 'text-ink-900' },
+          { label: 'Received', value: paid, tone: 'text-emerald-700' },
+          { label: due < 0 ? 'Advance held' : 'Receivable', value: Math.abs(due), tone: due > 0 ? 'text-amber-700' : 'text-ink-900' },
+        ].map((t) => (
+          <div key={t.label} className="px-5 py-3">
+            <dt className="text-xs font-semibold text-ink-500">{t.label}</dt>
+            <dd className={cn('tnum mt-0.5 text-xl font-extrabold', t.tone)}>{inr(t.value)}</dd>
+          </div>
+        ))}
+      </dl>
+
+      {form && (
+        <div className="grid items-end gap-3 border-b border-ink-100 bg-ink-50/50 p-4 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr_auto]">
+          <Field label={form === 'charge' ? 'Fee for' : 'Note'} hint={form === 'payment' ? 'optional' : undefined}>
+            <Input
+              value={f.description}
+              onChange={(e) => setF({ ...f, description: e.target.value })}
+              placeholder={form === 'charge' ? 'e.g. GST filing · October' : 'e.g. Part payment for audit'}
+              autoFocus
+            />
+          </Field>
+          <Field label="Amount (₹)">
+            <Input type="number" min={0} step={100} value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} />
+          </Field>
+          <Field label="Date">
+            <Input type="date" value={f.date} max={todayISO()} onChange={(e) => setF({ ...f, date: e.target.value })} />
+          </Field>
+          {form === 'payment' ? (
+            <Field label="Paid by">
+              <Select value={f.mode} onChange={(e) => setF({ ...f, mode: e.target.value as PaymentMode })}>
+                {PAYMENT_MODES.map((m) => (
+                  <option key={m}>{m}</option>
+                ))}
+              </Select>
+            </Field>
+          ) : (
+            <span className="hidden lg:block" />
+          )}
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={() => setForm(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={save} disabled={!valid}>
+              {form === 'charge' ? 'Add fee' : 'Save payment'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {rows.length === 0 ? (
+        <Empty icon={<IndianRupee size={20} />} title="No transactions yet" hint="Add a fee when work is billed and record payments as they come in." />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
+            <thead className="border-b border-ink-100 bg-ink-50/60">
+              <tr>
+                <Th>Date</Th>
+                <Th>Particulars</Th>
+                <Th>Mode</Th>
+                <Th align="right">Fee</Th>
+                <Th align="right">Received</Th>
+                <Th align="right">Balance</Th>
+                <Th />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-ink-100">
+              {rows.map((x) => (
+                <tr key={x.id}>
+                  <Td className="tnum whitespace-nowrap text-ink-600">{fmtDate(x.date, true)}</Td>
+                  <Td className="font-medium text-ink-800">{x.description}</Td>
+                  <Td>{x.mode ? <Badge>{x.mode}</Badge> : <span className="text-ink-300">—</span>}</Td>
+                  <Td className="tnum text-right text-ink-800">{x.kind === 'charge' ? inr(x.amount) : ''}</Td>
+                  <Td className="tnum text-right font-semibold text-emerald-700">{x.kind === 'payment' ? inr(x.amount) : ''}</Td>
+                  <Td className={cn('tnum text-right font-bold', x.balance > 0 ? 'text-amber-700' : 'text-ink-500')}>{inr(x.balance)}</Td>
+                  <Td className="text-right">
+                    <IconButton
+                      label="Remove entry"
+                      onClick={() => updateClient(client.id, { transactions: client.transactions.filter((t) => t.id !== x.id) })}
+                      className="hover:text-rose-600"
+                    >
+                      <Trash2 size={14} />
+                    </IconButton>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
   )
 }
 
@@ -526,6 +848,8 @@ export default function ClientDetail() {
           onChange={setTab}
           items={[
             { value: 'overview', label: 'Overview' },
+            { value: 'clarifications', label: 'Clarifications', count: client.clarifications.length },
+            { value: 'fees', label: 'Fees' },
             { value: 'logins', label: 'Portal logins', count: client.credentials.length },
             { value: 'documents', label: 'Documents', count: client.documents.length },
             { value: 'work', label: 'Work' },
@@ -534,6 +858,8 @@ export default function ClientDetail() {
       </div>
 
       {tab === 'overview' && <Overview client={client} />}
+      {tab === 'clarifications' && <Clarifications client={client} />}
+      {tab === 'fees' && <Fees client={client} />}
       {tab === 'logins' && <Logins client={client} />}
       {tab === 'documents' && <Documents client={client} />}
       {tab === 'work' && <Work client={client} />}

@@ -99,7 +99,19 @@ export function Badge({ tone = 'neutral', dot, className, children }: { tone?: T
 
 /* ---------- Avatar ---------- */
 
-export function Avatar({ name, hue = 212, size = 28, square }: { name: string; hue?: number; size?: number; square?: boolean }) {
+export function Avatar({ name, hue = 212, size = 28, square, photo }: { name: string; hue?: number; size?: number; square?: boolean; photo?: string }) {
+  if (photo)
+    return (
+      <img
+        src={photo}
+        alt={name}
+        title={name}
+        width={size}
+        height={size}
+        style={{ width: size, height: size }}
+        className={cn('shrink-0 object-cover', square ? 'rounded-[22%]' : 'rounded-full')}
+      />
+    )
   return (
     <span
       className={cn('inline-flex shrink-0 items-center justify-center font-bold select-none', square ? 'rounded-[22%]' : 'rounded-full')}
@@ -121,7 +133,7 @@ export function Person({ emp, size = 24, muted }: { emp?: Employee; size?: numbe
   if (!emp) return <span className="text-ink-400">Unassigned</span>
   return (
     <span className="inline-flex min-w-0 items-center gap-2">
-      <Avatar name={emp.name} hue={emp.hue} size={size} />
+      <Avatar name={emp.name} hue={emp.hue} photo={emp.photo} size={size} />
       <span className={cn('truncate', muted ? 'text-ink-500' : 'font-medium text-ink-700')}>{emp.name}</span>
     </span>
   )

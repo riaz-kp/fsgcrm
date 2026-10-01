@@ -1,12 +1,12 @@
 import { Check, Plus } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, Navigate, useParams } from 'react-router-dom'
 import { Due } from '../components/bits'
-import { Badge, Button, Card, Field, Input, Modal, PageHeader, Segmented, Select, StatusSelect, Td, Th } from '../components/ui'
+import { Badge, Button, Card, Empty, Field, Input, Modal, PageHeader, Segmented, Select, StatusSelect, Td, Th } from '../components/ui'
 import { addDays, cn, currentGstPeriod, financialYear, inr, periodLabel, shiftPeriod, todayISO } from '../lib/format'
-import { GST_STAGES, GST_STATUS, SERVICE_KINDS, SIMPLE_STATUS, options, type Tone } from '../lib/meta'
+import { GST_STATUS, SERVICE_KINDS, SIMPLE_STATUS, options, type Tone } from '../lib/meta'
 import { useStore } from '../store'
-import type { Client, GstFiling, GstStage, ItFiling, ServiceKind } from '../types'
+import type { Client, GstFiling, ItFiling, ServiceKind } from '../types'
 
 type Tab = 'gst' | 'tds' | 'it' | 'audit' | 'services'
 
@@ -120,41 +120,6 @@ function useClientMap() {
 
 /* ---------- GST ---------- */
 
-const STAGE_INDEX: Record<GstStage, number> = { awaiting: -1, bills: 0, tally: 1, excel: 2, json: 3 }
-
-/** Bills -> Tally -> Excel -> JSON. Steps before the format the client sends in are skipped. */
-function StagePipeline({ row, onChange }: { row: GstFiling; onChange: (s: GstStage) => void }) {
-  const at = STAGE_INDEX[row.stage]
-  const from = STAGE_INDEX[row.source]
-  return (
-    <div className="inline-flex items-center" role="group" aria-label="Data stage">
-      {GST_STAGES.map((s, i) => {
-        const skipped = i < from
-        const done = !skipped && i <= at
-        return (
-          <button
-            key={s.key}
-            type="button"
-            disabled={skipped}
-            title={skipped ? `Client sends ${row.source}, so this step is skipped` : `Mark data as reached ${s.label}`}
-            onClick={() => onChange(i === at ? (i > from ? GST_STAGES[i - 1].key : 'awaiting') : s.key)}
-            className={cn(
-              'h-6 border-y border-r px-1.5 text-[11px] font-bold transition-colors first:rounded-l-md first:border-l last:rounded-r-md',
-              skipped
-                ? 'border-ink-200 bg-ink-50 text-ink-300 line-through'
-                : done
-                  ? 'border-brand-500 bg-brand-500 text-white'
-                  : 'border-ink-200 bg-white text-ink-500 hover:bg-brand-50 hover:text-brand-700',
-            )}
-          >
-            {s.label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
 function GstTracker() {
   const gst = useStore((s) => s.gst)
   const updateGst = useStore((s) => s.updateGst)
@@ -184,16 +149,15 @@ function GstTracker() {
         items={[
           { label: 'GSTR-1 filed', value: `${filed('gstr1')} / ${live.length}` },
           { label: 'GSTR-3B filed', value: `${filed('gstr3b')} / ${live.length}` },
-          { label: 'Data not received', value: live.filter((g) => g.stage === 'awaiting').length, tone: live.some((g) => g.stage === 'awaiting') ? 'red' : undefined },
+          { label: 'No data yet', value: live.filter((g) => g.gstr1 === 'data_pending').length, tone: live.some((g) => g.gstr1 === 'data_pending') ? 'red' : undefined },
           { label: 'Fee balance', value: inr(all.reduce((s, g) => s + Math.max(0, balance(g)), 0)), tone: 'amber' },
         ]}
       />
       <TableShell
-        minWidth={1000}
+        minWidth={900}
         head={
           <>
             <Th>Client</Th>
-            <Th>Data</Th>
             <Th>GSTR-1</Th>
             <Th>GSTR-3B</Th>
             <Th>Assigned</Th>
@@ -220,9 +184,6 @@ function GstTracker() {
                 />
               </Td>
               <Td>
-                <StagePipeline row={g} onChange={(stage) => updateGst(g.id, { stage })} />
-              </Td>
-              <Td>
                 <StatusSelect label="GSTR-1 status" value={g.gstr1} options={options(GST_STATUS)} onChange={(gstr1) => updateGst(g.id, { gstr1 })} />
               </Td>
               <Td>
@@ -247,7 +208,7 @@ function GstTracker() {
         })}
       </TableShell>
       <p className="border-t border-ink-100 px-5 py-2.5 text-xs text-ink-500">
-        Click a data step to move a client along Bills → Tally → Excel → JSON. Statuses, fees and remarks save as you change them.
+        Statuses, fees received and remarks save as you change them.
       </p>
     </Card>
   )
@@ -366,7 +327,7 @@ function ItTracker() {
         items={[
           { label: 'Returns', value: rows.length },
           { label: 'Filed or completed', value: `${rows.filter(done).length} / ${rows.length}` },
-          { label: 'Waiting for data', value: rows.filter((r) => !r.dataReceived).length, tone: 'red' },
+          { label: 'Pending', value: rows.filter((r) => r.status === 'pending').length, tone: 'amber' },
           { label: 'Fee balance', value: inr(rows.reduce((s, r) => s + (done(r) ? Math.max(0, r.fee - r.received) : 0), 0)), tone: 'amber' },
         ]}
       />
@@ -377,7 +338,6 @@ function ItTracker() {
             <Th>Client</Th>
             <Th>Type</Th>
             <Th>Due</Th>
-            <Th align="center">Data in</Th>
             <Th>Status</Th>
             <Th>Assigned</Th>
             <Th align="right">Fee</Th>
@@ -398,11 +358,6 @@ function ItTracker() {
               </Td>
               <Td className="text-[13px]">
                 <Due date={itDueDate(r, c)} done={done(r)} compact />
-              </Td>
-              <Td>
-                <span className="flex justify-center">
-                  <Tick checked={r.dataReceived} onChange={(dataReceived) => updateIt(r.id, { dataReceived })} label="Data received" />
-                </span>
               </Td>
               <Td>
                 <StatusSelect label="Return status" value={r.status} options={options(SIMPLE_STATUS)} onChange={(status) => updateIt(r.id, { status })} />
@@ -443,7 +398,7 @@ function AuditTracker() {
           { label: 'Audits', value: audits.length },
           { label: 'Filed or completed', value: `${done} / ${audits.length}` },
           { label: 'Reconciliation open', value: audits.filter((a) => !a.reconciliation).length, tone: 'amber' },
-          { label: 'Internal audits', value: audits.filter((a) => a.kind === 'Internal audit').length },
+          { label: 'Internal audits awaiting data', value: audits.filter((a) => a.kind === 'Internal audit' && !a.dataReceived).length },
         ]}
       />
       <TableShell
@@ -453,6 +408,7 @@ function AuditTracker() {
             <Th>Client</Th>
             <Th>Audit</Th>
             <Th>Due</Th>
+            <Th align="center">Data in</Th>
             <Th align="center">Reconciled</Th>
             <Th>Status</Th>
             <Th>Assigned</Th>
@@ -473,6 +429,15 @@ function AuditTracker() {
               </Td>
               <Td className="text-[13px]">
                 <Due date={a.dueDate} done={closed} compact={closed} />
+              </Td>
+              <Td>
+                <span className="flex justify-center">
+                  {a.kind === 'Internal audit' ? (
+                    <Tick checked={a.dataReceived} onChange={(dataReceived) => updateAudit(a.id, { dataReceived })} label="Data received" />
+                  ) : (
+                    <span className="text-ink-300">—</span>
+                  )}
+                </span>
               </Td>
               <Td>
                 <span className="flex justify-center">
@@ -506,6 +471,7 @@ function ServiceForm({ onClose }: { onClose: () => void }) {
     clientId: '',
     party: '',
     kind: SERVICE_KINDS[0] as ServiceKind,
+    details: '',
     committedDate: addDays(todayISO(), 10),
     assigneeId: employees.find((e) => e.id === 'e-anna')?.id ?? employees[0].id,
     fee: 3000,
@@ -524,9 +490,9 @@ function ServiceForm({ onClose }: { onClose: () => void }) {
           </Button>
           <Button
             variant="primary"
-            disabled={!party}
+            disabled={!party || ((f.kind === 'Certification' || f.kind === 'Other') && !f.details.trim())}
             onClick={() => {
-              addService({ party, clientId: f.clientId || undefined, kind: f.kind, committedDate: f.committedDate, assigneeId: f.assigneeId, fee: f.fee, received: 0, status: 'to_begin', remark: '' })
+              addService({ party, clientId: f.clientId || undefined, kind: f.kind, details: f.details.trim() || undefined, committedDate: f.committedDate, assigneeId: f.assigneeId, fee: f.fee, received: 0, status: 'to_begin', remark: '' })
               onClose()
             }}
           >
@@ -536,12 +502,19 @@ function ServiceForm({ onClose }: { onClose: () => void }) {
       }
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Service" className="sm:col-span-2">
+        <Field label="Service">
           <Select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value as ServiceKind })}>
             {SERVICE_KINDS.map((k) => (
               <option key={k}>{k}</option>
             ))}
           </Select>
+        </Field>
+        <Field label="Details" hint={f.kind === 'Certification' || f.kind === 'Other' ? 'say which' : 'optional'}>
+          <Input
+            value={f.details}
+            onChange={(e) => setF({ ...f, details: e.target.value })}
+            placeholder={f.kind === 'Certification' ? 'e.g. ISO 9001 renewal' : f.kind === 'Other' ? 'What is the job?' : ''}
+          />
         </Field>
         <Field label="Existing client">
           <Select value={f.clientId} onChange={(e) => setF({ ...f, clientId: e.target.value })}>
@@ -586,7 +559,7 @@ function ServiceTracker() {
   return (
     <Card>
       <div className="flex items-center justify-between gap-2 border-b border-ink-100 p-3">
-        <p className="px-2 text-[13px] text-ink-500">GST and MSME registration, LLP, company and partnership formation, trademark, FSSAI, DSC</p>
+        <p className="px-2 text-[13px] text-ink-500">Registrations, incorporations, trademark, FSSAI, DSC, legal metrology, certifications, PAN and TAN applications</p>
         <Button size="sm" variant="primary" icon={<Plus size={15} />} onClick={() => setAdding(true)}>
           Add job
         </Button>
@@ -629,6 +602,7 @@ function ServiceTracker() {
             </Td>
             <Td>
               <Badge tone="green">{s.kind}</Badge>
+              {s.details && <p className="mt-0.5 max-w-52 truncate text-xs text-ink-500" title={s.details}>{s.details}</p>}
             </Td>
             <Td className="text-[13px]">
               <Due date={s.committedDate} done={s.status === 'completed'} />
@@ -656,37 +630,28 @@ function ServiceTracker() {
 
 /* ---------- Page ---------- */
 
-export default function Compliance() {
-  const [tab, setTab] = useState<Tab>('gst')
-  const counts = {
-    gst: useStore((s) => s.gst).filter((g) => g.period === currentGstPeriod()).length,
-    tds: useStore((s) => s.tds).length,
-    it: useStore((s) => s.it).length,
-    audit: useStore((s) => s.audits).length,
-    services: useStore((s) => s.services).length,
-  }
+const PAGES: Record<Tab, { title: string; subtitle: string; body: () => ReactNode }> = {
+  gst: { title: 'GST filing', subtitle: 'Monthly · GSTR-1 by the 11th and GSTR-3B by the 20th, staff cut-off a day earlier.', body: () => <GstTracker /> },
+  tds: { title: 'TDS', subtitle: 'Payment every month, return every quarter.', body: () => <TdsTracker /> },
+  it: { title: 'Income tax', subtitle: 'Yearly returns, audit and non-audit cases.', body: () => <ItTracker /> },
+  audit: { title: 'Audit', subtitle: 'Tax, statutory and internal audits with reconciliation.', body: () => <AuditTracker /> },
+  services: { title: 'One-time work', subtitle: 'Jobs with a date committed to the customer.', body: () => <ServiceTracker /> },
+}
 
+export default function Compliance() {
+  const { tab } = useParams()
+  const page = PAGES[tab as Tab]
+  if (!tab) return <Navigate to="/filings/gst" replace />
+  if (!page)
+    return (
+      <Card>
+        <Empty title="No such tracker" hint="Pick GST, TDS, Income tax, Audit or One-time from the sidebar." />
+      </Card>
+    )
   return (
     <>
-      <PageHeader title="Filings" subtitle="The monthly, quarterly and yearly trackers that used to live in Excel, one row per client." />
-      <div className="mb-4">
-        <Segmented
-          value={tab}
-          onChange={setTab}
-          items={[
-            { value: 'gst', label: 'GST · monthly', count: counts.gst },
-            { value: 'tds', label: 'TDS · quarterly', count: counts.tds },
-            { value: 'it', label: 'Income tax · yearly', count: counts.it },
-            { value: 'audit', label: 'Audit', count: counts.audit },
-            { value: 'services', label: 'One-time', count: counts.services },
-          ]}
-        />
-      </div>
-      {tab === 'gst' && <GstTracker />}
-      {tab === 'tds' && <TdsTracker />}
-      {tab === 'it' && <ItTracker />}
-      {tab === 'audit' && <AuditTracker />}
-      {tab === 'services' && <ServiceTracker />}
+      <PageHeader title={page.title} subtitle={page.subtitle} />
+      {page.body()}
     </>
   )
 }

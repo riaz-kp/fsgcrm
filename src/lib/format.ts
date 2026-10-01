@@ -126,3 +126,18 @@ export function greeting(): string {
   const h = new Date().getHours()
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
 }
+
+/** '16:30' -> '4:30 pm' */
+export function fmtTime(hhmm: string): string {
+  const [h, m] = hhmm.split(':').map(Number)
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'am' : 'pm'}`
+}
+
+/** Days until the next occurrence of a birthday (0 = today). */
+export function daysToBirthday(dob: string): number {
+  const today = parseISO(todayISO())
+  const [, m, d] = dob.split('-').map(Number)
+  const next = new Date(today.getFullYear(), m - 1, d)
+  if (next < today) next.setFullYear(today.getFullYear() + 1)
+  return Math.round((next.getTime() - today.getTime()) / 86_400_000)
+}

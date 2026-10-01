@@ -1,5 +1,8 @@
 import type {
+  AttendanceMark,
   ClientCategory,
+  ConsultMode,
+  PaymentMode,
   Department,
   DocKind,
   GstStage,
@@ -39,6 +42,7 @@ export const CATEGORY_TONE: Record<ClientCategory, Tone> = {
 export const SCOPES: Array<{ key: ScopeKey; label: string; short: string; group: string }> = [
   { key: 'gst_registration', label: 'GST registration', short: 'GST Reg', group: 'GST' },
   { key: 'gst_filing', label: 'GST filing', short: 'GST', group: 'GST' },
+  { key: 'annual_return', label: 'Annual return', short: 'Annual', group: 'GST' },
   { key: 'eway', label: 'E-way bill', short: 'E-way', group: 'GST' },
   { key: 'it_non_audit', label: 'IT · non-audit case', short: 'IT', group: 'Income tax & audit' },
   { key: 'it_audit', label: 'IT · audit case', short: 'IT Audit', group: 'Income tax & audit' },
@@ -133,7 +137,25 @@ export const SERVICE_KINDS: ServiceKind[] = [
   'Trademark',
   'FSSAI',
   'DSC',
+  'Legal metrology',
+  'Certification',
+  'TAN application',
+  'PAN application',
+  'Other',
 ]
+
+export const ATTENDANCE: Record<AttendanceMark, { label: string; tone: Tone }> = {
+  P: { label: 'Present', tone: 'green' },
+  H: { label: 'Half day', tone: 'amber' },
+  L: { label: 'Leave', tone: 'violet' },
+  A: { label: 'Absent', tone: 'red' },
+}
+
+export const ATTENDANCE_ORDER: AttendanceMark[] = ['P', 'H', 'L', 'A']
+
+export const PAYMENT_MODES: PaymentMode[] = ['UPI', 'Cash', 'Bank transfer', 'Cheque']
+
+export const CONSULT_MODES: ConsultMode[] = ['In person', 'Phone', 'Video']
 
 export const ROLES: Meta<Role> = {
   ceo: { label: 'CEO', tone: 'blue' },

@@ -100,6 +100,15 @@ export function statutoryDeadlines(from: string, to: string): Deadline[] {
         applies: (c) => has(c, 'it_non_audit') && c.category === 'Proprietorship',
       },
       {
+        id: `annual-return-${y}`,
+        title: 'GST annual return',
+        detail: `GSTR-9 · FY ${prevFy}`,
+        date: iso(y, 11, 31),
+        dept: 'gst',
+        extendable: true,
+        applies: (c) => has(c, 'annual_return'),
+      },
+      {
         id: `audit-${y}`,
         title: 'Audit report',
         detail: `Audit cases · FY ${prevFy}`,
