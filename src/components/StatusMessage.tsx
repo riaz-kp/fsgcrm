@@ -2,7 +2,7 @@ import { Check, Copy, MessageCircle } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { cn, whatsappHref } from '../lib/format'
 import { statusLines, statusMessage } from '../lib/statusMessage'
-import { useCurrentUser, useStore } from '../store'
+import { useCan, useCurrentUser, useStore, useTemplate } from '../store'
 import type { Client } from '../types'
 import { Button, Field, LinkButton, Modal, Textarea } from './ui'
 
@@ -12,13 +12,15 @@ import { Button, Field, LinkButton, Modal, Textarea } from './ui'
  */
 export default function StatusMessage({ client, onClose }: { client: Client; onClose: () => void }) {
   const me = useCurrentUser()
+  const fees = useCan()('view_fees')
+  const template = useTemplate('status')
   const gst = useStore((s) => s.gst)
   const tds = useStore((s) => s.tds)
   const it = useStore((s) => s.it)
   const audits = useStore((s) => s.audits)
   const services = useStore((s) => s.services)
-  const lines = useMemo(() => statusLines(client, { gst, tds, it, audits, services }), [client, gst, tds, it, audits, services])
-  const draft = (keys: Set<string>) => statusMessage(client, lines.filter((l) => keys.has(l.key)), me.name)
+  const lines = useMemo(() => statusLines(client, { gst, tds, it, audits, services }, fees), [client, gst, tds, it, audits, services, fees])
+  const draft = (keys: Set<string>) => statusMessage(template, client, lines.filter((l) => keys.has(l.key)), me.name)
 
   const [ticked, setTicked] = useState(() => new Set(lines.filter((l) => l.on).map((l) => l.key)))
   const [text, setText] = useState(() => draft(ticked))

@@ -3,6 +3,7 @@
  * credential and figure below is made up.
  */
 import { addDays, currentGstPeriod, financialYear, periodLabel, shiftPeriod, todayISO } from '../lib/format'
+import { BUILTIN_SCOPES } from '../lib/meta'
 import type {
   Attendance,
   AttendanceEntry,
@@ -13,12 +14,14 @@ import type {
   ClientDoc,
   Credential,
   Employee,
+  GstDataType,
   GstFiling,
-  GstStage,
   GstStatus,
   ItFiling,
   Lead,
+  Reminder,
   Remark,
+  ScopeDef,
   ScopeDetails,
   ScopeKey,
   ServiceJob,
@@ -26,6 +29,7 @@ import type {
   Task,
   TdsFiling,
   TdsPayment,
+  TemplateKey,
 } from '../types'
 
 /** How many months of filing history the sample data carries. */
@@ -43,6 +47,10 @@ export interface SeedData {
   services: ServiceJob[]
   consultations: Consultation[]
   attendance: Attendance
+  scopes: ScopeDef[]
+  reminders: Reminder[]
+  /** Only the templates someone has reworded; the rest use the wording in TEMPLATES. */
+  templates: Partial<Record<TemplateKey, string>>
 }
 
 const E = {
@@ -120,7 +128,8 @@ function employees(today: string): Employee[] {
     mk(E.afna, 'Afna', 'Trainee', 'trainee', 292, ['DSC'], E.anna),
     mk(E.hari, 'Harikrishna', 'Trainee', 'trainee', 190, ['GST filing'], E.anna),
     mk(E.ramees, 'Ramees', 'Trainee', 'trainee', 46, ['GST filing'], E.anna),
-    mk(E.shani, 'Shani', 'Trainee', 'trainee', 348, ['Client lead management'], E.praveen),
+    // Handles enquiries, not filings, so she has been set up without access to portal passwords.
+    { ...mk(E.shani, 'Shani', 'Trainee', 'trainee', 348, ['Client lead management'], E.praveen), permissions: ['edit_clients', 'view_fees'] },
   ]
 }
 
@@ -588,41 +597,43 @@ function tasks(today: string, cs: Client[]): Task[] {
   ]
 }
 
-function gst(cs: Client[]): GstFiling[] {
+function gst(cs: Client[], today: string): GstFiling[] {
   const filers = cs.filter((c) => c.scopes.includes('gst_filing'))
   const staff = [E.hari, E.ramees, E.husni, E.anna, E.henna]
   const current = currentGstPeriod()
   const out: GstFiling[] = []
-  const ORDER: GstStage[] = ['bills', 'tally', 'excel', 'json']
+  const TYPES: GstDataType[] = ['bills', 'tally', 'excel', 'json']
 
-  // What the current month looks like part-way through: a mix of every state.
-  const live: Array<[GstStage, GstStatus, GstStatus, string]> = [
-    ['tally', 'in_progress', 'to_begin', ''],
-    ['json', 'filed', 'in_progress', ''],
-    ['json', 'filed', 'filed', ''],
-    ['awaiting', 'data_pending', 'to_begin', 'Reminder sent on WhatsApp'],
-    ['excel', 'in_progress', 'to_begin', ''],
-    ['json', 'nil', 'nil', 'No transactions this month'],
-    ['bills', 'in_progress', 'to_begin', ''],
-    ['json', 'filed', 'to_begin', ''],
+  // What the current month looks like part-way through: a mix of every state. `false` means the data is not in yet.
+  const live: Array<[boolean, GstStatus, GstStatus, string]> = [
+    [true, 'in_progress', 'to_begin', ''],
+    [true, 'filed', 'in_progress', ''],
+    [true, 'filed', 'filed', ''],
+    [false, 'data_pending', 'to_begin', 'Reminder sent on WhatsApp'],
+    [true, 'in_progress', 'to_begin', ''],
+    [true, 'nil', 'nil', 'No transactions this month'],
+    [true, 'in_progress', 'to_begin', ''],
+    [true, 'filed', 'to_begin', ''],
   ]
 
   filers.forEach((c, i) => {
-    const source: GstFiling['source'] = (['bills', 'tally', 'excel'] as const)[i % 3]
+    // Most clients send the same kind of data every month.
+    const dataType = TYPES[i % TYPES.length]
     const fee = c.category === 'Company' || c.category === 'LLP' ? 2500 : c.gstFrequency === 'Q' ? 1000 : 1500
     for (let back = 0; back < HISTORY_MONTHS; back++) {
       const period = shiftPeriod(current, -back)
       const isCurrent = back === 0
-      const [rawStage, gstr1, gstr3b, note] = isCurrent ? live[i % live.length] : (['json', 'filed', 'filed', ''] as const)
-      const stage = rawStage !== 'awaiting' && ORDER.indexOf(rawStage) < ORDER.indexOf(source) ? source : rawStage
+      const [hasData, gstr1, gstr3b, note] = isCurrent ? live[i % live.length] : ([true, 'filed', 'filed', ''] as const)
+      // Data for a month comes in during the first days of the next.
+      const arrived = `${shiftPeriod(period, 1)}-${String(1 + ((i + back) % 6)).padStart(2, '0')}`
       const prevBalance = i % 4 === 1 ? fee : i % 7 === 3 ? fee * 2 : 0
       const received = isCurrent ? (i % 3 === 0 ? fee + prevBalance : i % 3 === 1 ? 0 : fee) : fee + prevBalance
       out.push({
         id: `g-${c.id}-${period}`,
         clientId: c.id,
         period,
-        source,
-        stage: c.active ? stage : 'awaiting',
+        dataType: c.active && hasData ? dataType : undefined,
+        dataIn: c.active && hasData ? (arrived > today ? today : arrived) : undefined,
         gstr1: c.active ? gstr1 : 'na',
         gstr3b: c.active ? gstr3b : 'na',
         // No fixed allocation: who files for a client changes from month to month.
@@ -651,6 +662,12 @@ function tds(cs: Client[], today: string): TdsFiling[] {
       // Earlier months are deposited; the month being worked on is a mix.
       const payments: Record<string, TdsPayment> = { [current]: i % 3 === 0 ? 'paid' : 'due' }
       for (let back = 1; back < HISTORY_MONTHS; back++) payments[shiftPeriod(current, -back)] = 'paid'
+      // Deduction details for a month arrive early the next; this month's are still awaited from some.
+      const dataIn: Record<string, string> = {}
+      for (const m of Object.keys(payments)) {
+        const arrived = `${shiftPeriod(m, 1)}-${String(2 + (i % 4)).padStart(2, '0')}`
+        if (m !== current || i % 3 !== 1) dataIn[m] = arrived > today ? today : arrived
+      }
       const quarters = patterns[i % patterns.length]
       // Billed per quarterly return once it is filed; some clients are yet to pay for the last one.
       const perReturn = c.category === 'Company' || c.category === 'LLP' ? 2500 : 1500
@@ -661,6 +678,7 @@ function tds(cs: Client[], today: string): TdsFiling[] {
         fy,
         payments,
         quarters,
+        dataIn,
         assigneeId: i % 4 === 3 ? E.ramees : E.vijeesh,
         fee,
         received: i % 4 === 2 ? 0 : i % 4 === 3 ? fee - 500 : fee,
@@ -683,18 +701,19 @@ function it(cs: Client[], today: string): ItFiling[] {
           : nonAudit[i % nonAudit.length]
       const fee = audit ? 7500 : c.category === 'Individual' ? 1500 : 2500
       const done = status === 'completed' || status === 'filed'
+      const doneOn = done ? addDays(today, audit ? -(2 + (i % 5)) : -(58 + ((i * 3) % 20))) : undefined
       return {
         id: `it-${c.id}`,
         clientId: c.id,
         ay: fy,
         kind: audit ? 'audit' : 'non_audit',
         status,
-        dataReceived: status !== 'to_begin',
+        dataIn: status === 'to_begin' ? undefined : addDays(doneOn ?? today, -(12 + (i % 9))),
         assigneeId: E.vijeesh,
         fee,
         received: status === 'completed' ? fee : done ? fee / 2 : 0,
         remark: status === 'pending' ? (audit ? 'Audit report in progress' : 'Form 16 awaited from employer') : '',
-        doneOn: done ? addDays(today, audit ? -(2 + (i % 5)) : -(58 + ((i * 3) % 20))) : undefined,
+        doneOn,
       }
     })
 }
@@ -721,7 +740,7 @@ function audits(cs: Client[], today: string): AuditFiling[] {
         kind: c.category === 'Company' ? 'Statutory audit' : 'Tax audit',
         status,
         reconciliation,
-        dataReceived: true,
+        dataIn: addDays(today, -(70 + (i % 25))),
         assigneeId: i % 2 === 0 ? E.praveen : E.vijeesh,
         dueDate: `${y}-09-30`,
         fee,
@@ -739,7 +758,7 @@ function audits(cs: Client[], today: string): AuditFiling[] {
         kind: 'Internal audit',
         status: i % 2 === 0 ? 'pending' : 'to_begin',
         reconciliation: false,
-        dataReceived: i % 2 === 0,
+        dataIn: i % 2 === 0 ? addDays(today, -(9 + (i % 6))) : undefined,
         assigneeId: E.praveen,
         dueDate: `${y}-10-31`,
         fee: 12000,
@@ -772,6 +791,8 @@ function services(cs: Client[], today: string): ServiceJob[] {
   return rows.map((r, i) => ({
     id: `s-${i + 1}`,
     ...r,
+    // Papers come in before the work starts; jobs not begun are mostly still waiting for them.
+    dataIn: r.status === 'to_begin' ? (i % 3 === 0 ? addDays(today, -2) : undefined) : addDays(r.committedDate, -(14 + (i % 5))),
     doneOn: r.status === 'completed' ? addDays(r.committedDate, -1) : r.status === 'filed' ? addDays(today, -(5 + i)) : undefined,
   }))
 }
@@ -832,11 +853,34 @@ function consultations(cs: Client[], today: string): Consultation[] {
     { withName: 'Lakeview Resorts Pvt Ltd', clientId: id('Lakeview'), date: d(-1), time: '15:00', durationMin: 45, topic: 'Advance tax estimate for Q3', mode: 'Video', status: 'done', notes: 'Shared working. They will pay by the 15th.' },
     { withName: 'Royal Granites', date: d(0), time: '11:00', durationMin: 60, topic: 'Project report for term loan and audit takeover', mode: 'In person', status: 'scheduled', notes: 'Lead. Bring last two years financials.' },
     { withName: 'Kadalundi Marine Exports Pvt Ltd', clientId: id('Kadalundi'), date: d(0), time: '16:30', durationMin: 30, topic: 'Export refund under GST', mode: 'Phone', status: 'scheduled', notes: '' },
-    { withName: 'Zenith Infotech Pvt Ltd', clientId: id('Zenith'), date: d(1), time: '10:30', durationMin: 45, topic: 'ESOP tax treatment for employees', mode: 'Video', status: 'scheduled', notes: '' },
+    {
+      withName: 'Zenith Infotech Pvt Ltd',
+      clientId: id('Zenith'),
+      date: d(1),
+      time: '10:30',
+      durationMin: 45,
+      topic: 'ESOP tax treatment for employees',
+      mode: 'Video',
+      status: 'scheduled',
+      notes: '',
+      postponed: [{ date: d(-2), time: '15:00', on: d(-3), reason: 'Their CFO was travelling' }],
+    },
     { withName: 'Bright Future Educational Trust', clientId: id('Bright Future'), date: d(3), time: '14:00', durationMin: 60, topic: '12A / 80G renewal and internal audit scope', mode: 'In person', status: 'scheduled', notes: '' },
     { withName: 'Dr. Anjali Menon', clientId: id('Dr. Anjali'), date: d(6), time: '17:30', durationMin: 30, topic: 'Tax planning before year end', mode: 'Phone', status: 'scheduled', notes: '' },
   ]
   return rows.map((r, i) => ({ id: `k-${i + 1}`, ...r }))
+}
+
+function reminders(cs: Client[], today: string): Reminder[] {
+  const id = (name: string) => cs.find((x) => x.name.startsWith(name))?.id
+  const month = today.slice(0, 7)
+  return [
+    // PF and ESI have no statutory dates in the app; the firm keeps them as reminders.
+    { id: 'm-1', title: 'PF & ESI contribution due', note: 'Challans for every client with PF or ESI in scope.', date: `${shiftPeriod(month, -2)}-15`, repeat: 'monthly', notifyDays: 3, createdBy: E.praveen, done: [`${shiftPeriod(month, -2)}-15`, `${shiftPeriod(month, -1)}-15`] },
+    { id: 'm-2', title: 'Advance tax instalment', note: 'Remind audit-case clients a week ahead.', date: `${today.slice(0, 4)}-12-15`, repeat: 'none', notifyDays: 10, forId: E.vijeesh, createdBy: E.vijeesh, done: [] },
+    { id: 'm-3', title: 'Collect export refund papers', date: addDays(today, 2), repeat: 'none', notifyDays: 2, forId: E.anna, clientId: id('Kadalundi'), createdBy: E.praveen, done: [] },
+    { id: 'm-4', title: 'Renew office DSC token stock', date: addDays(today, 12), repeat: 'none', notifyDays: 5, forId: E.afna, createdBy: E.anna, done: [] },
+  ]
 }
 
 const hhmm = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
@@ -871,7 +915,7 @@ export function buildSeed(): SeedData {
   const today = todayISO()
   const cs = clients(today)
   const emps = employees(today)
-  const data = { gst: gst(cs), tds: tds(cs, today), it: it(cs, today), audits: audits(cs, today), services: services(cs, today) }
+  const data = { gst: gst(cs, today), tds: tds(cs, today), it: it(cs, today), audits: audits(cs, today), services: services(cs, today) }
   ledger(cs, data, today)
   return {
     employees: emps,
@@ -881,5 +925,8 @@ export function buildSeed(): SeedData {
     ...data,
     consultations: consultations(cs, today),
     attendance: attendance(emps, today),
+    scopes: BUILTIN_SCOPES.map((s) => ({ ...s })),
+    reminders: reminders(cs, today),
+    templates: {},
   }
 }

@@ -1,10 +1,12 @@
 import {
+  AlarmClock,
   Bell,
   Building2,
   CalendarCheck,
   CalendarDays,
   Check,
   ChevronsUpDown,
+  ClipboardList,
   Clock,
   FileCheck2,
   Landmark,
@@ -18,6 +20,7 @@ import {
   RotateCcw,
   ScrollText,
   Search,
+  Settings,
   Stamp,
   Target,
   UserPlus,
@@ -29,7 +32,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { statutoryDeadlines } from '../lib/deadlines'
 import { addDays, cn, daysUntil, fmtDate, fmtTime, relDue, todayISO } from '../lib/format'
 import { DEPARTMENTS, ROLES } from '../lib/meta'
-import { isHead, useCurrentUser, useStore, useVisibleTasks } from '../store'
+import { can, useCan, useCurrentUser, useDueReminders, useLookup, useStore, useVisibleTasks } from '../store'
 import { Avatar, Badge, Button, IconButton } from './ui'
 
 /** Close a popover when the user clicks elsewhere or presses Escape. */
@@ -258,11 +261,28 @@ function Reminders() {
   const clients = useStore((s) => s.clients)
   const employees = useStore((s) => s.employees)
   const consultations = useStore((s) => s.consultations)
+  const toggleReminderDone = useStore((s) => s.toggleReminderDone)
+  const due = useDueReminders()
+  const { client } = useLookup()
 
   const items = useMemo(() => {
     const today = todayISO()
-    const head = isHead(me)
-    const out: Array<{ key: string; title: string; sub: string; when: string; urgent: boolean; to: string }> = []
+    const head = can(me, 'assign_tasks')
+    const out: Array<{ key: string; title: string; sub: string; when: string; urgent: boolean; to: string; done?: () => void }> = []
+
+    // Reminders people added themselves, from the moment their notice period starts.
+    for (const o of due) {
+      const r = o.reminder
+      out.push({
+        key: `m-${r.id}-${o.date}`,
+        title: r.title,
+        sub: ['Reminder', relDue(o.date), client(r.clientId)?.name].filter(Boolean).join(' · '),
+        when: o.date,
+        urgent: o.date < today,
+        to: `/calendar?date=${o.date}`,
+        done: () => toggleReminderDone(r.id, o.date),
+      })
+    }
 
     // The CEO's consultation diary: today's and tomorrow's appointments.
     if (me.role === 'ceo')
@@ -314,7 +334,7 @@ function Reminders() {
       })
     }
     return out.sort((a, b) => Number(b.urgent) - Number(a.urgent) || a.when.localeCompare(b.when))
-  }, [tasks, leads, clients, employees, consultations, me])
+  }, [tasks, leads, clients, employees, consultations, me, due, client, toggleReminderDone])
 
   return (
     <div ref={ref} className="relative">
@@ -337,14 +357,14 @@ function Reminders() {
           ) : (
             <ul className="scroll-thin max-h-96 divide-y divide-ink-100 overflow-y-auto">
               {items.map((it) => (
-                <li key={it.key}>
+                <li key={it.key} className="flex items-center hover:bg-ink-50">
                   <button
                     type="button"
                     onClick={() => {
                       navigate(it.to)
                       setOpen(false)
                     }}
-                    className="flex w-full items-start gap-3 px-4 py-2.5 text-left hover:bg-ink-50"
+                    className="flex min-w-0 flex-1 items-start gap-3 px-4 py-2.5 text-left"
                   >
                     <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', it.urgent ? 'bg-rose-500' : 'bg-brand-400')} />
                     <span className="min-w-0">
@@ -352,6 +372,11 @@ function Reminders() {
                       <span className={cn('block truncate text-xs', it.urgent ? 'text-rose-600' : 'text-ink-500')}>{it.sub}</span>
                     </span>
                   </button>
+                  {it.done && (
+                    <IconButton label={`Tick off: ${it.title}`} onClick={it.done} className="mr-2 hover:text-emerald-600">
+                      <Check size={16} />
+                    </IconButton>
+                  )}
                 </li>
               ))}
             </ul>
@@ -366,15 +391,16 @@ function QuickAdd() {
   const [open, setOpen] = useState(false)
   const ref = useDismiss(open, () => setOpen(false))
   const navigate = useNavigate()
-  const me = useCurrentUser()
+  const can = useCan()
   const go = (to: string) => {
     navigate(to)
     setOpen(false)
   }
   const items = [
-    { label: 'Client', icon: <Building2 size={16} />, to: '/clients?new=1', show: true },
+    { label: 'Client', icon: <Building2 size={16} />, to: '/clients?new=1', show: can('edit_clients') },
     { label: 'Lead', icon: <UserPlus size={16} />, to: '/leads?new=1', show: true },
-    { label: 'Task', icon: <ListTodo size={16} />, to: '/tasks?new=1', show: isHead(me) },
+    { label: 'Task', icon: <ListTodo size={16} />, to: '/tasks?new=1', show: can('assign_tasks') },
+    { label: 'Reminder', icon: <AlarmClock size={16} />, to: '/calendar?remind=1', show: true },
   ].filter((i) => i.show)
 
   return (
@@ -412,6 +438,7 @@ export default function Layout() {
     })
   const location = useLocation()
   const me = useCurrentUser()
+  const allowed = useCan()
   const tasks = useVisibleTasks()
   const leads = useStore((s) => s.leads)
   const consultations = useStore((s) => s.consultations)
@@ -453,7 +480,7 @@ export default function Layout() {
           <NavItem to="/" icon={<LayoutDashboard size={17} />} label="Dashboard" onNavigate={closeNav} />
           <NavItem to="/tasks" icon={<ListTodo size={17} />} label="Tasks" count={openTasks} onNavigate={closeNav} />
           <NavItem to="/calendar" icon={<CalendarDays size={17} />} label="Deadlines" onNavigate={closeNav} />
-          {isHead(me) && (
+          {allowed('consultations') && (
             <NavItem to="/consultations" icon={<Clock size={17} />} label="Consultations" count={consultsToday} onNavigate={closeNav} />
           )}
 
@@ -467,10 +494,12 @@ export default function Layout() {
           <NavHeading>Relationships</NavHeading>
           <NavItem to="/clients" icon={<Building2 size={17} />} label="Clients" onNavigate={closeNav} />
           <NavItem to="/leads" icon={<Target size={17} />} label="Leads" count={openLeads} onNavigate={closeNav} />
+          <NavItem to="/requirements" icon={<ClipboardList size={17} />} label="Requirements" onNavigate={closeNav} />
 
           <NavHeading>Firm</NavHeading>
           <NavItem to="/team" icon={<Users size={17} />} label="Team" onNavigate={closeNav} />
           <NavItem to="/attendance" icon={<CalendarCheck size={17} />} label="Attendance" onNavigate={closeNav} />
+          {allowed('settings') && <NavItem to="/settings" icon={<Settings size={17} />} label="Settings" onNavigate={closeNav} />}
         </nav>
 
         <div className="p-3 rail:p-2">
@@ -488,7 +517,7 @@ export default function Layout() {
         <GlobalSearch />
         <div className="ml-auto flex items-center gap-2">
           <span className="hidden md:block">
-            <Badge tone={ROLES[me.role].tone}>{isHead(me) ? 'Can assign & approve' : 'Reports progress'}</Badge>
+            <Badge tone={ROLES[me.role].tone}>{allowed('assign_tasks') ? 'Can assign & approve' : 'Reports progress'}</Badge>
           </span>
           <Reminders />
           <QuickAdd />

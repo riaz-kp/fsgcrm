@@ -1,10 +1,10 @@
-import { CalendarClock, Check, Clock, MapPin, Phone, Plus, Video, X } from 'lucide-react'
+import { CalendarClock, CalendarArrowUp, Check, Clock, Lock, MapPin, Phone, Plus, Video, X } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Badge, Button, Card, Empty, Field, IconButton, Input, Modal, PageHeader, Segmented, Select, Textarea } from '../components/ui'
 import { addDays, cn, daysUntil, fmtDate, fmtTime, fmtWeekday, relDue, todayISO } from '../lib/format'
 import { CONSULT_MODES } from '../lib/meta'
-import { useStore } from '../store'
+import { useCan, useStore } from '../store'
 import type { ConsultMode, Consultation } from '../types'
 
 const MODE_ICON: Record<ConsultMode, ReactNode> = {
@@ -103,9 +103,82 @@ function ConsultForm({ onClose }: { onClose: () => void }) {
   )
 }
 
-function Slot({ c }: { c: Consultation }) {
+/** Move a consultation to another day or time. The old slot is kept, so the diary shows how often it has moved. */
+function PostponeForm({ c, onClose }: { c: Consultation; onClose: () => void }) {
+  const postpone = useStore((s) => s.postponeConsultation)
+  // A missed appointment is moved on from today; an upcoming one from its own day.
+  const base = c.date < todayISO() ? todayISO() : c.date
+  const [date, setDate] = useState(addDays(base, 1))
+  const [time, setTime] = useState(c.time)
+  const [reason, setReason] = useState('')
+  const same = date === c.date && time === c.time
+  const quick = [
+    { label: 'Next day', date: addDays(base, 1) },
+    { label: 'In 2 days', date: addDays(base, 2) },
+    { label: 'A week later', date: addDays(base, 7) },
+  ]
+
+  return (
+    <Modal
+      title="Postpone consultation"
+      subtitle={`${c.withName} · now ${fmtWeekday(c.date)} ${fmtDate(c.date, true)}, ${fmtTime(c.time)}`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            disabled={!date || !time || same}
+            onClick={() => {
+              postpone(c.id, date, time, reason.trim())
+              onClose()
+            }}
+          >
+            Move to {date ? `${fmtDate(date)}, ${time ? fmtTime(time) : ''}` : '…'}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div className="flex flex-wrap gap-1.5">
+          {quick.map((q) => (
+            <button
+              key={q.label}
+              type="button"
+              onClick={() => setDate(q.date)}
+              aria-pressed={date === q.date}
+              className={cn(
+                'h-8 rounded-lg px-3 text-[13px] font-semibold ring-1 transition-colors ring-inset',
+                date === q.date ? 'bg-brand-50 text-brand-800 ring-brand-300' : 'bg-white text-ink-600 ring-ink-200 hover:bg-ink-50',
+              )}
+            >
+              {q.label} <span className="font-normal text-ink-500">· {fmtWeekday(q.date)} {fmtDate(q.date)}</span>
+            </button>
+          ))}
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="New date">
+            <Input type="date" value={date} min={todayISO()} onChange={(e) => setDate(e.target.value)} />
+          </Field>
+          <Field label="New time">
+            <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} step={900} />
+          </Field>
+        </div>
+        <Field label="Why" hint="optional">
+          <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Client travelling, asked for next week" />
+        </Field>
+        {same && <p className="text-[13px] text-amber-700">That is the slot it already has. Pick another day or time.</p>}
+      </div>
+    </Modal>
+  )
+}
+
+function Slot({ c, onPostpone }: { c: Consultation; onPostpone: () => void }) {
   const updateConsultation = useStore((s) => s.updateConsultation)
   const open = c.status === 'scheduled'
+  const moved = c.postponed?.at(-1)
   return (
     <li className={cn('flex flex-wrap items-start gap-x-4 gap-y-2 px-5 py-3', !open && 'opacity-60')}>
       <div className="w-20 shrink-0">
@@ -125,6 +198,14 @@ function Slot({ c }: { c: Consultation }) {
         </p>
         <p className="text-sm text-ink-700">{c.topic}</p>
         {c.notes && <p className="mt-0.5 text-[13px] text-ink-500">{c.notes}</p>}
+        {moved && (
+          <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-amber-800">
+            <CalendarArrowUp size={13} className="shrink-0" />
+            Postponed from {fmtWeekday(moved.date)} {fmtDate(moved.date)}, {fmtTime(moved.time)}
+            {moved.reason && <span className="text-ink-500">· {moved.reason}</span>}
+            {c.postponed!.length > 1 && <span className="text-ink-500">· moved {c.postponed!.length} times</span>}
+          </p>
+        )}
       </div>
       {/* Wraps under the details on a phone, lined up with them rather than with the time. */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 max-sm:w-full max-sm:pl-24">
@@ -136,6 +217,9 @@ function Slot({ c }: { c: Consultation }) {
           <span className="flex gap-1">
             <Button size="sm" icon={<Check size={14} />} onClick={() => updateConsultation(c.id, { status: 'done' })}>
               Done
+            </Button>
+            <Button size="sm" icon={<CalendarArrowUp size={14} />} onClick={onPostpone}>
+              Postpone
             </Button>
             <IconButton label="Cancel consultation" onClick={() => updateConsultation(c.id, { status: 'cancelled' })} className="hover:text-rose-600">
               <X size={16} />
@@ -152,8 +236,10 @@ function Slot({ c }: { c: Consultation }) {
 export default function Consultations() {
   const consultations = useStore((s) => s.consultations)
   const ceo = useStore((s) => s.employees.find((e) => e.role === 'ceo'))
+  const allowed = useCan()('consultations')
   const [view, setView] = useState<'upcoming' | 'past'>('upcoming')
   const [adding, setAdding] = useState(false)
+  const [postponing, setPostponing] = useState<Consultation>()
   const today = todayISO()
 
   const days = useMemo(() => {
@@ -167,6 +253,13 @@ export default function Consultations() {
   }, [consultations, view, today])
 
   const todayCount = consultations.filter((c) => c.date === today && c.status === 'scheduled').length
+
+  if (!allowed)
+    return (
+      <Card>
+        <Empty icon={<Lock size={20} />} title="Consultations are private" hint="The CEO's diary is open to those given access in Settings." />
+      </Card>
+    )
 
   return (
     <>
@@ -212,7 +305,7 @@ export default function Consultations() {
               </header>
               <ul className="divide-y divide-ink-100">
                 {list.map((c) => (
-                  <Slot key={c.id} c={c} />
+                  <Slot key={c.id} c={c} onPostpone={() => setPostponing(c)} />
                 ))}
               </ul>
             </Card>
@@ -221,6 +314,7 @@ export default function Consultations() {
       )}
 
       {adding && <ConsultForm onClose={() => setAdding(false)} />}
+      {postponing && <PostponeForm c={postponing} onClose={() => setPostponing(undefined)} />}
     </>
   )
 }

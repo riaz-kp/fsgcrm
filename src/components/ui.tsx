@@ -1,5 +1,5 @@
 import { X } from 'lucide-react'
-import { useEffect, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
+import { useEffect, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type ComponentProps, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react'
 import { cn, initials } from '../lib/format'
 import type { Tone } from '../lib/meta'
 import type { Employee } from '../types'
@@ -266,7 +266,7 @@ export function Input({ className, small, fit, ...rest }: InputHTMLAttributes<HT
   return <input className={cn(control({ small, fit }), className)} {...rest} />
 }
 
-export function Textarea({ className, ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export function Textarea({ className, ...rest }: ComponentProps<'textarea'>) {
   return <textarea className={cn(CONTROL, 'block w-full py-2 text-sm', className)} rows={3} {...rest} />
 }
 

@@ -6,17 +6,22 @@ import type {
   PaymentMode,
   Department,
   DocKind,
-  GstStage,
+  BuiltinScope,
+  GstDataType,
   GstStatus,
   LeadStatus,
+  Permission,
   Portal,
   Priority,
   Role,
+  ScopeDef,
   ScopeDetails,
   ScopeKey,
   ServiceKind,
   SimpleStatus,
   TaskStatus,
+  TemplateKey,
+  TrackerTab,
 } from '../types'
 
 export type Tone = 'neutral' | 'blue' | 'green' | 'amber' | 'red' | 'violet' | 'teal'
@@ -41,51 +46,52 @@ export const CATEGORY_TONE: Record<ClientCategory, Tone> = {
   Trust: 'green',
 }
 
-export type TrackerTab = 'gst' | 'tds' | 'it' | 'audit' | 'services'
+export type { TrackerTab }
 
-export interface ScopeMeta {
-  key: ScopeKey
-  label: string
-  short: string
-  group: string
-  /** The filing tracker this scope's work is followed in, if it has one. */
-  tracker?: TrackerTab
-  /** Set for scopes that need a line saying what exactly is meant. */
-  detailHint?: string
+/** Where a scope's work is followed, for the scope form in Settings. */
+export const TRACKERS: Record<TrackerTab, string> = {
+  gst: 'GST filing',
+  tds: 'TDS',
+  it: 'Income tax',
+  audit: 'Audit',
+  services: 'One-time work',
 }
 
-export const SCOPES: ScopeMeta[] = [
-  { key: 'gst_registration', label: 'GST registration', short: 'GST Reg', group: 'GST', tracker: 'services' },
-  { key: 'gst_filing', label: 'GST filing', short: 'GST', group: 'GST', tracker: 'gst' },
-  { key: 'annual_return', label: 'Annual return', short: 'Annual', group: 'GST', tracker: 'gst' },
-  { key: 'eway', label: 'E-way bill', short: 'E-way', group: 'GST', tracker: 'gst' },
-  { key: 'it_non_audit', label: 'IT · non-audit case', short: 'IT', group: 'Income tax & audit', tracker: 'it' },
-  { key: 'it_audit', label: 'IT · audit case', short: 'IT Audit', group: 'Income tax & audit', tracker: 'it' },
-  { key: 'internal_audit', label: 'Internal audit', short: 'Int. Audit', group: 'Income tax & audit', tracker: 'audit' },
-  { key: 'tds', label: 'TDS', short: 'TDS', group: 'Payroll & TDS', tracker: 'tds' },
-  { key: 'pf', label: 'PF', short: 'PF', group: 'Payroll & TDS' },
-  { key: 'esi', label: 'ESI', short: 'ESI', group: 'Payroll & TDS' },
-  { key: 'incorporation', label: 'Incorporation / formation', short: 'Incorp', group: 'One-time', tracker: 'services' },
-  { key: 'project_report', label: 'Project report', short: 'Proj. Report', group: 'One-time' },
-  { key: 'legal_metrology', label: 'Legal metrology', short: 'Legal Met.', group: 'One-time', tracker: 'services' },
-  { key: 'certification', label: 'Certifications', short: 'Cert.', group: 'One-time', tracker: 'services', detailHint: 'Which certificate? e.g. ISO 9001 renewal' },
-  { key: 'tan_application', label: 'TAN application', short: 'TAN', group: 'One-time', tracker: 'services' },
-  { key: 'pan_application', label: 'PAN application', short: 'PAN', group: 'One-time', tracker: 'services' },
-  { key: 'other', label: 'Other', short: 'Other', group: 'One-time', tracker: 'services', detailHint: 'What is the work?' },
-]
+/** The scopes the firm started with. More can be added, and these renamed, in Settings. */
+export const BUILTIN_SCOPES: ScopeDef[] = (
+  [
+    { key: 'gst_registration', label: 'GST registration', short: 'GST Reg', group: 'GST', tracker: 'services' },
+    { key: 'gst_filing', label: 'GST filing', short: 'GST', group: 'GST', tracker: 'gst' },
+    { key: 'annual_return', label: 'Annual return', short: 'Annual', group: 'GST', tracker: 'gst' },
+    { key: 'eway', label: 'E-way bill', short: 'E-way', group: 'GST', tracker: 'gst' },
+    { key: 'it_non_audit', label: 'IT · non-audit case', short: 'IT', group: 'Income tax & audit', tracker: 'it' },
+    { key: 'it_audit', label: 'IT · audit case', short: 'IT Audit', group: 'Income tax & audit', tracker: 'it' },
+    { key: 'internal_audit', label: 'Internal audit', short: 'Int. Audit', group: 'Income tax & audit', tracker: 'audit' },
+    { key: 'tds', label: 'TDS', short: 'TDS', group: 'Payroll & TDS', tracker: 'tds' },
+    { key: 'pf', label: 'PF', short: 'PF', group: 'Payroll & TDS' },
+    { key: 'esi', label: 'ESI', short: 'ESI', group: 'Payroll & TDS' },
+    { key: 'incorporation', label: 'Incorporation / formation', short: 'Incorp', group: 'One-time', tracker: 'services' },
+    { key: 'project_report', label: 'Project report', short: 'Proj. Report', group: 'One-time' },
+    { key: 'legal_metrology', label: 'Legal metrology', short: 'Legal Met.', group: 'One-time', tracker: 'services' },
+    { key: 'certification', label: 'Certifications', short: 'Cert.', group: 'One-time', tracker: 'services', detailHint: 'Which certificate? e.g. ISO 9001 renewal' },
+    { key: 'tan_application', label: 'TAN application', short: 'TAN', group: 'One-time', tracker: 'services' },
+    { key: 'pan_application', label: 'PAN application', short: 'PAN', group: 'One-time', tracker: 'services' },
+    { key: 'other', label: 'Other', short: 'Other', group: 'One-time', tracker: 'services', detailHint: 'What is the work?' },
+  ] satisfies Array<ScopeDef & { key: BuiltinScope }>
+).map((s) => ({ ...s, builtin: true }))
 
-export const SCOPE_GROUPS = [...new Set(SCOPES.map((s) => s.group))]
+/** Groups in the order their first scope appears. */
+export function scopeGroups(defs: ScopeDef[]): string[] {
+  return [...new Set(defs.map((s) => s.group))]
+}
 
 /** Keep only the notes that belong to a ticked scope and say something. */
-export function pruneScopeDetails(scopes: ScopeKey[], details: ScopeDetails): ScopeDetails | undefined {
+export function pruneScopeDetails(scopes: ScopeKey[], details: ScopeDetails, defs: ScopeDef[]): ScopeDetails | undefined {
   const kept = Object.fromEntries(
-    SCOPES.filter((s) => s.detailHint && scopes.includes(s.key) && details[s.key]?.trim()).map((s) => [s.key, details[s.key]!.trim()]),
+    defs.filter((s) => s.detailHint && scopes.includes(s.key) && details[s.key]?.trim()).map((s) => [s.key, details[s.key]!.trim()]),
   )
   return Object.keys(kept).length ? kept : undefined
 }
-
-export const SCOPE_LABEL = Object.fromEntries(SCOPES.map((s) => [s.key, s.label])) as Record<ScopeKey, string>
-export const SCOPE_SHORT = Object.fromEntries(SCOPES.map((s) => [s.key, s.short])) as Record<ScopeKey, string>
 
 export const PORTALS: Record<Portal, { label: string; hint: string }> = {
   gst: { label: 'GST portal', hint: 'gst.gov.in' },
@@ -144,11 +150,11 @@ export const GST_STATUS: Meta<GstStatus> = {
   na: { label: 'N/A', tone: 'neutral' },
 }
 
-export const GST_STAGES: Array<{ key: GstStage; label: string }> = [
-  { key: 'bills', label: 'Bills' },
-  { key: 'tally', label: 'Tally' },
-  { key: 'excel', label: 'Excel' },
-  { key: 'json', label: 'JSON' },
+export const GST_DATA_TYPES: Array<{ value: GstDataType; label: string }> = [
+  { value: 'bills', label: 'Bills' },
+  { value: 'tally', label: 'Tally backup' },
+  { value: 'excel', label: 'Excel file' },
+  { value: 'json', label: 'JSON file' },
 ]
 
 export const SIMPLE_STATUS: Meta<SimpleStatus> = {
@@ -200,6 +206,86 @@ export const ROLES: Meta<Role> = {
 }
 
 export const LEAD_SOURCES = ['Referral', 'Walk-in', 'Phone call', 'WhatsApp', 'Existing client', 'Website']
+
+/* ---------- Permissions ---------- */
+
+export const PERMISSIONS: Array<{ key: Permission; label: string; short: string; hint: string }> = [
+  { key: 'assign_tasks', label: 'Assign & approve tasks', short: 'Tasks', hint: "Assigns work, sees everyone's tasks and approves what is submitted. Without it a person sees only their own tasks." },
+  { key: 'edit_clients', label: 'Add & edit clients', short: 'Clients', hint: 'Adds clients, edits their details and scope of work, and marks them active or inactive.' },
+  { key: 'view_logins', label: 'See portal passwords', short: 'Passwords', hint: "Sees and copies clients' GST, income tax and TRACES passwords. Without it only usernames show." },
+  { key: 'view_fees', label: 'See fees & payments', short: 'Fees', hint: 'Sees fees, payments and balances in the trackers, on client pages and on the dashboard.' },
+  { key: 'consultations', label: "CEO's consultations", short: 'Consults', hint: "Opens the CEO's consultation diary to schedule, postpone or close appointments." },
+  { key: 'manage_attendance', label: 'Keep attendance', short: 'Attendance', hint: 'Marks attendance and time in and out for everyone. Without it a person sees only their own.' },
+  { key: 'view_team', label: "See colleagues' details", short: 'Team', hint: "Sees everyone's personal and family details, work and attendance, not only their own." },
+  { key: 'edit_team', label: 'Add & edit team', short: 'Edit team', hint: 'Adds team members and edits their profile, role and reporting line.' },
+  { key: 'settings', label: 'Change settings', short: 'Settings', hint: 'Changes scopes, permissions and message templates in Settings.' },
+]
+
+const ALL_PERMISSIONS = PERMISSIONS.map((p) => p.key)
+
+/** What each role gets until someone changes it person by person. Heads and the CEO get everything, as before. */
+export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
+  ceo: ALL_PERMISSIONS,
+  head: ALL_PERMISSIONS,
+  staff: ['edit_clients', 'view_logins', 'view_fees'],
+  trainee: ['edit_clients', 'view_logins', 'view_fees'],
+}
+
+/* ---------- WhatsApp templates ---------- */
+
+export const TEMPLATES: Record<TemplateKey, { label: string; hint: string; fields: Array<{ key: string; hint: string }>; text: string }> = {
+  status: {
+    label: 'Work status',
+    hint: 'Send status on a client page drafts this, with the lines the staff member ticks in place of {status}.',
+    fields: [
+      { key: 'greeting', hint: 'Dear Sir/Madam, or Dear <name> for individuals' },
+      { key: 'client', hint: 'Client name' },
+      { key: 'date', hint: "Today's date" },
+      { key: 'status', hint: 'The ticked status lines, one per line' },
+      { key: 'staff', hint: 'Name of the person sending it' },
+      { key: 'firm', hint: 'Fin Savvy Consultors LLP' },
+    ],
+    text: `{greeting},
+
+Status of the work for {client} as on {date}:
+
+{status}
+
+Please let us know if you need anything further.
+
+Regards,
+{staff}
+{firm}`,
+  },
+  requirements: {
+    label: 'Documents required',
+    hint: 'Send on WhatsApp on the Requirements page drafts this, with the ticked checklist in place of {checklist}.',
+    fields: [
+      { key: 'greeting', hint: 'Dear Sir/Madam, or Dear <name> for individuals' },
+      { key: 'client', hint: 'Client name, or "you" when no client is picked' },
+      { key: 'services', hint: 'The services picked, e.g. GST registration (Partnership)' },
+      { key: 'checklist', hint: 'The ticked documents, grouped' },
+      { key: 'staff', hint: 'Name of the person sending it' },
+      { key: 'firm', hint: 'Fin Savvy Consultors LLP' },
+    ],
+    text: `{greeting},
+
+For {services}, please send us the following:
+
+{checklist}
+
+All mobile numbers given should be linked to Aadhaar.
+
+Regards,
+{staff}
+{firm}`,
+  },
+}
+
+/** Fill a template's {placeholders}; anything not known is left as written. */
+export function fillTemplate(text: string, values: Record<string, string>): string {
+  return text.replace(/\{(\w+)\}/g, (all, key: string) => values[key] ?? all)
+}
 
 export function options<K extends string>(meta: Meta<K>): Array<{ value: K; label: string; tone: Tone }> {
   return (Object.keys(meta) as K[]).map((value) => ({ value, ...meta[value] }))

@@ -5,11 +5,13 @@ import {
   Copy,
   Eye,
   EyeOff,
+  ClipboardList,
   FileArchive,
   FileSpreadsheet,
   FileText,
   IndianRupee,
   KeyRound,
+  Lock,
   Mail,
   MapPin,
   MessageCircle,
@@ -34,8 +36,8 @@ import { Avatar, Badge, Button, Card, CardHeader, Empty, Field, IconButton, Inpu
 import { statutoryDeadlines } from '../lib/deadlines'
 import { workEntries } from '../lib/history'
 import { addDays, cn, currentGstPeriod, daysUntil, fileSize, fmtDate, inr, periodLabel, todayISO, uid } from '../lib/format'
-import { CATEGORY_TONE, DEPARTMENTS, DOC_KINDS, GST_STATUS, PAYMENT_MODES, PORTALS, SCOPES, SCOPE_GROUPS, SCOPE_LABEL, SIMPLE_STATUS, TASK_STATUS } from '../lib/meta'
-import { useCurrentUser, useLookup, useStore, useVisibleTasks } from '../store'
+import { CATEGORY_TONE, DEPARTMENTS, DOC_KINDS, GST_DATA_TYPES, GST_STATUS, PAYMENT_MODES, PORTALS, SIMPLE_STATUS, TASK_STATUS } from '../lib/meta'
+import { useCan, useCurrentUser, useLookup, useScopes, useStore, useVisibleTasks } from '../store'
 import type { Client, Credential, DocKind, PaymentMode, Portal, ScopeKey } from '../types'
 
 type Tab = 'overview' | 'clarifications' | 'fees' | 'logins' | 'documents' | 'work'
@@ -46,9 +48,11 @@ const CARD_ACTION = '@max-3xl:absolute @max-3xl:top-2 @max-3xl:right-3'
 const SCOPE_CHIP =
   'group inline-flex h-8 max-w-full items-center gap-1.5 rounded-lg bg-brand-50 pr-2 pl-3 text-[13px] font-semibold text-brand-800 ring-1 ring-brand-200 transition-colors ring-inset hover:bg-brand-100 hover:ring-brand-300'
 
-function Overview({ client, onEdit, onOpenWork }: { client: Client; onEdit: () => void; onOpenWork: () => void }) {
+function Overview({ client, onEdit, onOpenWork }: { client: Client; onEdit?: () => void; onOpenWork: () => void }) {
   const updateClient = useStore((s) => s.updateClient)
-  const groups = SCOPE_GROUPS.filter((g) => SCOPES.some((s) => s.group === g && client.scopes.includes(s.key)))
+  const scopes = useScopes()
+  const mine = scopes.list.filter((s) => client.scopes.includes(s.key))
+  const groups = scopes.groups.filter((g) => mine.some((s) => s.group === g))
   const deadlines = useMemo(() => {
     const today = todayISO()
     return statutoryDeadlines(today, addDays(today, 120))
@@ -102,20 +106,22 @@ function Overview({ client, onEdit, onOpenWork }: { client: Client; onEdit: () =
             title="Scope of work"
             hint="What FSG handles for this client. Open a scope to see its work."
             action={
-              <Button size="sm" icon={<Pencil size={14} />} onClick={onEdit}>
-                Edit scope
-              </Button>
+              onEdit && (
+                <Button size="sm" icon={<Pencil size={14} />} onClick={onEdit}>
+                  Edit scope
+                </Button>
+              )
             }
           />
           {groups.length === 0 ? (
-            <p className="px-5 pb-5 text-[13px] text-ink-500">No scope has been ticked yet. Use Edit scope to add what FSG handles.</p>
+            <p className="px-5 pb-5 text-[13px] text-ink-500">No scope has been ticked yet.{onEdit && ' Use Edit scope to add what FSG handles.'}</p>
           ) : (
             <div className="space-y-4 px-5 pb-5">
               {groups.map((g) => (
                 <div key={g}>
                   <p className="mb-1.5 text-[11px] font-bold tracking-wider text-ink-400 uppercase">{g}</p>
                   <div className="flex flex-wrap gap-1.5">
-                    {SCOPES.filter((s) => s.group === g && client.scopes.includes(s.key)).map((s) => {
+                    {mine.filter((s) => s.group === g).map((s) => {
                       const note = client.scopeDetails?.[s.key]
                       const body = (
                         <>
@@ -145,12 +151,22 @@ function Overview({ client, onEdit, onOpenWork }: { client: Client; onEdit: () =
         </Card>
 
         <Card>
-          <CardHeader title="Requirements sent" hint="Whether the list of papers and data needed has gone to the client, scope by scope" />
-          {client.scopes.length === 0 ? (
+          <CardHeader
+            title="Requirements sent"
+            hint="Whether the list of papers and data needed has gone to the client, scope by scope"
+            action={
+              <Link to={`/requirements?client=${client.id}`}>
+                <Button size="sm" icon={<ClipboardList size={14} />}>
+                  Prepare list
+                </Button>
+              </Link>
+            }
+          />
+          {mine.length === 0 ? (
             <p className="px-5 pb-5 text-[13px] text-ink-500">Add a scope to track its requirement list.</p>
           ) : (
             <ul className="divide-y divide-ink-100 pb-2">
-              {SCOPES.filter((s) => client.scopes.includes(s.key)).map((s) => {
+              {mine.map((s) => {
                 const sent = client.requirementsSent[s.key]
                 const set = (date?: string) => {
                   const next = { ...client.requirementsSent }
@@ -216,6 +232,8 @@ function Overview({ client, onEdit, onOpenWork }: { client: Client; onEdit: () =
 
 function Logins({ client }: { client: Client }) {
   const updateClient = useStore((s) => s.updateClient)
+  // Without access the usernames still show, so staff know which login the client has; the passwords do not.
+  const access = useCan()('view_logins')
   const [shown, setShown] = useState<Set<Portal>>(new Set())
   const [copied, setCopied] = useState('')
   const [adding, setAdding] = useState(false)
@@ -246,6 +264,7 @@ function Logins({ client }: { client: Client }) {
         title="Portal logins"
         hint="One place for the usernames and passwords now kept in the Excel sheets"
         action={
+          access &&
           free.length > 0 && (
             <Button
               size="sm"
@@ -291,22 +310,30 @@ function Logins({ client }: { client: Client }) {
                       </span>
                     </Td>
                     <Td label="Password" className="col-span-full">
-                      <span className="inline-flex max-w-full items-center gap-1">
-                        <code className="tnum truncate rounded bg-ink-50 px-1.5 py-0.5 text-[13px] text-ink-800">
-                          {visible ? c.password : '•'.repeat(10)}
-                        </code>
-                        <IconButton label={visible ? 'Hide password' : 'Show password'} onClick={() => toggle(c.portal)}>
-                          {visible ? <EyeOff size={14} /> : <Eye size={14} />}
-                        </IconButton>
-                        <IconButton label="Copy password" onClick={() => copy(`${c.portal}-p`, c.password)}>
-                          {copied === `${c.portal}-p` ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
-                        </IconButton>
-                      </span>
+                      {access ? (
+                        <span className="inline-flex max-w-full items-center gap-1">
+                          <code className="tnum truncate rounded bg-ink-50 px-1.5 py-0.5 text-[13px] text-ink-800">
+                            {visible ? c.password : '•'.repeat(10)}
+                          </code>
+                          <IconButton label={visible ? 'Hide password' : 'Show password'} onClick={() => toggle(c.portal)}>
+                            {visible ? <EyeOff size={14} /> : <Eye size={14} />}
+                          </IconButton>
+                          <IconButton label="Copy password" onClick={() => copy(`${c.portal}-p`, c.password)}>
+                            {copied === `${c.portal}-p` ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+                          </IconButton>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 text-[13px] text-ink-400">
+                          <Lock size={13} /> Hidden
+                        </span>
+                      )}
                     </Td>
                     <Td className={cn('text-right', CARD_ACTION)}>
-                      <IconButton label={`Remove ${PORTALS[c.portal].label} login`} onClick={() => remove(c.portal)} className="hover:text-rose-600">
-                        <Trash2 size={14} />
-                      </IconButton>
+                      {access && (
+                        <IconButton label={`Remove ${PORTALS[c.portal].label} login`} onClick={() => remove(c.portal)} className="hover:text-rose-600">
+                          <Trash2 size={14} />
+                        </IconButton>
+                      )}
                     </Td>
                   </tr>
                 )
@@ -346,7 +373,9 @@ function Logins({ client }: { client: Client }) {
 
       <p className="flex items-start gap-2 border-t border-ink-100 px-5 py-3 text-xs text-ink-500">
         <ShieldCheck size={14} className="mt-px shrink-0 text-emerald-600" />
-        These are sample logins. In the live system passwords would be stored encrypted and limited to the staff working on the client.
+        {access
+          ? 'These are sample logins. In the live system passwords would be stored encrypted and limited to the staff working on the client.'
+          : 'You do not have access to portal passwords. Ask a head if you need one, or to be given access in Settings.'}
       </p>
     </Card>
   )
@@ -453,6 +482,12 @@ function Work({ client, onMessage }: { client: Client; onMessage: () => void }) 
   const a = audits.filter((x) => x.clientId === client.id)
   const s = services.filter((x) => x.clientId === client.id)
 
+  /** When the client's data for this piece of work came in, or that it has not. */
+  const dataIn = (date?: string, what?: string) => (
+    <span className={cn('text-xs font-medium', date ? 'text-ink-500' : 'text-amber-700')}>
+      {date ? `Data in ${fmtDate(date)}${what ? ` · ${what}` : ''}` : 'Data not in yet'}
+    </span>
+  )
   const lines: Array<{ label: string; detail: string; chips: ReactNode }> = []
   if (g)
     lines.push({
@@ -462,6 +497,7 @@ function Work({ client, onMessage }: { client: Client; onMessage: () => void }) 
         <>
           <Badge tone={GST_STATUS[g.gstr1].tone}>GSTR-1 · {GST_STATUS[g.gstr1].label}</Badge>
           <Badge tone={GST_STATUS[g.gstr3b].tone}>GSTR-3B · {GST_STATUS[g.gstr3b].label}</Badge>
+          {g.gstr1 !== 'na' && dataIn(g.dataIn, GST_DATA_TYPES.find((d) => d.value === g.dataType)?.label)}
         </>
       ),
     })
@@ -469,22 +505,50 @@ function Work({ client, onMessage }: { client: Client; onMessage: () => void }) 
     lines.push({
       label: 'TDS',
       detail: `FY ${t.fy}`,
-      chips: t.quarters.map((q, n) => (
-        <Badge key={n} tone={SIMPLE_STATUS[q].tone}>
-          Q{n + 1} · {SIMPLE_STATUS[q].label}
-        </Badge>
-      )),
+      chips: (
+        <>
+          {t.quarters.map((q, n) => (
+            <Badge key={n} tone={SIMPLE_STATUS[q].tone}>
+              Q{n + 1} · {SIMPLE_STATUS[q].label}
+            </Badge>
+          ))}
+          {dataIn(t.dataIn[period], `for ${periodLabel(period)}`)}
+        </>
+      ),
     })
   if (i)
     lines.push({
       label: 'Income tax',
       detail: `AY ${i.ay} · ${i.kind === 'audit' ? 'audit case' : 'non-audit'}`,
-      chips: <Badge tone={SIMPLE_STATUS[i.status].tone}>{SIMPLE_STATUS[i.status].label}</Badge>,
+      chips: (
+        <>
+          <Badge tone={SIMPLE_STATUS[i.status].tone}>{SIMPLE_STATUS[i.status].label}</Badge>
+          {dataIn(i.dataIn)}
+        </>
+      ),
     })
   for (const x of a)
-    lines.push({ label: x.kind, detail: `FY ${x.fy}`, chips: <Badge tone={SIMPLE_STATUS[x.status].tone}>{SIMPLE_STATUS[x.status].label}</Badge> })
+    lines.push({
+      label: x.kind,
+      detail: `FY ${x.fy}`,
+      chips: (
+        <>
+          <Badge tone={SIMPLE_STATUS[x.status].tone}>{SIMPLE_STATUS[x.status].label}</Badge>
+          {dataIn(x.dataIn)}
+        </>
+      ),
+    })
   for (const x of s)
-    lines.push({ label: x.kind, detail: `Committed ${fmtDate(x.committedDate)}`, chips: <Badge tone={SIMPLE_STATUS[x.status].tone}>{SIMPLE_STATUS[x.status].label}</Badge> })
+    lines.push({
+      label: x.kind,
+      detail: `Committed ${fmtDate(x.committedDate)}`,
+      chips: (
+        <>
+          <Badge tone={SIMPLE_STATUS[x.status].tone}>{SIMPLE_STATUS[x.status].label}</Badge>
+          {x.status !== 'completed' && dataIn(x.dataIn)}
+        </>
+      ),
+    })
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -550,6 +614,7 @@ function Work({ client, onMessage }: { client: Client; onMessage: () => void }) 
 
 function Clarifications({ client }: { client: Client }) {
   const me = useCurrentUser()
+  const scopes = useScopes()
   const updateClient = useStore((s) => s.updateClient)
   const { emp } = useLookup()
   const input = useRef<HTMLInputElement>(null)
@@ -566,7 +631,7 @@ function Clarifications({ client }: { client: Client }) {
     setRecording(undefined)
     if (input.current) input.current.value = ''
   }
-  const label = (s: ScopeKey | 'general') => (s === 'general' ? 'General' : SCOPE_LABEL[s])
+  const label = (s: ScopeKey | 'general') => (s === 'general' ? 'General' : scopes.label(s))
   const shown = client.clarifications.filter((q) => filter === 'all' || q.scope === filter)
 
   return (
@@ -579,7 +644,7 @@ function Clarifications({ client }: { client: Client }) {
               <option value="general">General</option>
               {client.scopes.map((s) => (
                 <option key={s} value={s}>
-                  {SCOPE_LABEL[s]}
+                  {scopes.label(s)}
                 </option>
               ))}
             </Select>
@@ -625,7 +690,7 @@ function Clarifications({ client }: { client: Client }) {
               <option value="general">General</option>
               {client.scopes.map((s) => (
                 <option key={s} value={s}>
-                  {SCOPE_LABEL[s]}
+                  {scopes.label(s)}
                 </option>
               ))}
             </Select>
@@ -834,9 +899,12 @@ export default function ClientDetail() {
   const { id } = useParams()
   const client = useStore((s) => s.clients.find((c) => c.id === id))
   const updateClient = useStore((s) => s.updateClient)
+  const can = useCan()
   const [tab, setTab] = useState<Tab>('overview')
   const [editing, setEditing] = useState(false)
   const [messaging, setMessaging] = useState(false)
+  const canEdit = can('edit_clients')
+  const fees = can('view_fees')
 
   if (!client) {
     return (
@@ -863,25 +931,33 @@ export default function ClientDetail() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <label className="flex items-center gap-2 text-[13px] font-semibold text-ink-600">
-            {client.active ? 'Active' : 'Inactive'}
-            <button
-              type="button"
-              role="switch"
-              aria-checked={client.active}
-              aria-label="Client active"
-              onClick={() => updateClient(client.id, { active: !client.active })}
-              className={cn('relative h-6 w-10 rounded-full transition-colors', client.active ? 'bg-emerald-500' : 'bg-ink-300')}
-            >
-              <span className={cn('absolute top-0.5 left-0.5 size-5 rounded-full bg-white shadow transition-transform', client.active && 'translate-x-4')} />
-            </button>
-          </label>
+          {canEdit ? (
+            <label className="flex items-center gap-2 text-[13px] font-semibold text-ink-600">
+              {client.active ? 'Active' : 'Inactive'}
+              <button
+                type="button"
+                role="switch"
+                aria-checked={client.active}
+                aria-label="Client active"
+                onClick={() => updateClient(client.id, { active: !client.active })}
+                className={cn('relative h-6 w-10 rounded-full transition-colors', client.active ? 'bg-emerald-500' : 'bg-ink-300')}
+              >
+                <span className={cn('absolute top-0.5 left-0.5 size-5 rounded-full bg-white shadow transition-transform', client.active && 'translate-x-4')} />
+              </button>
+            </label>
+          ) : (
+            <Badge tone={client.active ? 'green' : 'neutral'} dot>
+              {client.active ? 'Active' : 'Inactive'}
+            </Badge>
+          )}
           <Button icon={<MessageCircle size={15} className="text-emerald-600" />} onClick={() => setMessaging(true)}>
             Send status
           </Button>
-          <Button icon={<Pencil size={15} />} onClick={() => setEditing(true)}>
-            Edit
-          </Button>
+          {canEdit && (
+            <Button icon={<Pencil size={15} />} onClick={() => setEditing(true)}>
+              Edit
+            </Button>
+          )}
         </div>
       </div>
 
@@ -892,7 +968,7 @@ export default function ClientDetail() {
           items={[
             { value: 'overview', label: 'Overview' },
             { value: 'clarifications', label: 'Clarifications', count: client.clarifications.length },
-            { value: 'fees', label: 'Fees' },
+            ...(fees ? [{ value: 'fees' as const, label: 'Fees' }] : []),
             { value: 'logins', label: 'Portal logins', count: client.credentials.length },
             { value: 'documents', label: 'Documents', count: client.documents.length },
             { value: 'work', label: 'Work' },
@@ -900,14 +976,14 @@ export default function ClientDetail() {
         />
       </div>
 
-      {tab === 'overview' && <Overview client={client} onEdit={() => setEditing(true)} onOpenWork={() => setTab('work')} />}
+      {tab === 'overview' && <Overview client={client} onEdit={canEdit ? () => setEditing(true) : undefined} onOpenWork={() => setTab('work')} />}
       {tab === 'clarifications' && <Clarifications client={client} />}
-      {tab === 'fees' && <Fees client={client} />}
+      {tab === 'fees' && fees && <Fees client={client} />}
       {tab === 'logins' && <Logins client={client} />}
       {tab === 'documents' && <Documents client={client} />}
       {tab === 'work' && <Work client={client} onMessage={() => setMessaging(true)} />}
 
-      {editing && <ClientForm client={client} onClose={() => setEditing(false)} />}
+      {editing && canEdit && <ClientForm client={client} onClose={() => setEditing(false)} />}
       {messaging && <StatusMessage client={client} onClose={() => setMessaging(false)} />}
     </>
   )

@@ -4,33 +4,58 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { PhoneLink, ScopeChips, WhatsAppLink } from '../components/bits'
 import ClientForm from '../components/ClientForm'
 import { Avatar, Badge, Button, Card, Empty, PageHeader, Segmented, Select, Td, Th } from '../components/ui'
-import { cn } from '../lib/format'
-import { CATEGORIES, CATEGORY_TONE, SCOPES } from '../lib/meta'
-import { useStore } from '../store'
-import type { ClientCategory, ScopeKey } from '../types'
+import { cn, inr } from '../lib/format'
+import { CATEGORIES, CATEGORY_TONE } from '../lib/meta'
+import { useStoredState } from '../lib/useStoredState'
+import { useCan, useScopes, useStore } from '../store'
+import type { Client, ClientCategory, ScopeKey } from '../types'
 
 type StatusFilter = 'active' | 'inactive' | 'all'
 
+const balanceOf = (c: Client) => c.transactions.reduce((sum, x) => sum + (x.kind === 'charge' ? x.amount : -x.amount), 0)
+const byName = (a: Client, b: Client) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' })
+
+const SORTS = {
+  name: { label: 'Name A–Z', cmp: byName },
+  name_desc: { label: 'Name Z–A', cmp: (a: Client, b: Client) => byName(b, a) },
+  newest: { label: 'Newest client first', cmp: (a: Client, b: Client) => b.since.localeCompare(a.since) || byName(a, b) },
+  oldest: { label: 'Longest with us', cmp: (a: Client, b: Client) => a.since.localeCompare(b.since) || byName(a, b) },
+  code: { label: 'Client code', cmp: (a: Client, b: Client) => a.code.localeCompare(b.code, 'en', { numeric: true }) },
+  place: { label: 'Place', cmp: (a: Client, b: Client) => a.place.localeCompare(b.place) || byName(a, b) },
+  category: { label: 'Category', cmp: (a: Client, b: Client) => CATEGORIES.indexOf(a.category) - CATEGORIES.indexOf(b.category) || byName(a, b) },
+  balance: { label: 'Fee balance, highest first', cmp: (a: Client, b: Client) => balanceOf(b) - balanceOf(a) || byName(a, b) },
+} satisfies Record<string, { label: string; cmp: (a: Client, b: Client) => number }>
+
+type SortKey = keyof typeof SORTS
+const isSort = (v: unknown): v is SortKey => typeof v === 'string' && v in SORTS
+
 export default function Clients() {
   const clients = useStore((s) => s.clients)
+  const scopes = useScopes()
+  const can = useCan()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const [q, setQ] = useState('')
   const [category, setCategory] = useState<ClientCategory | ''>('')
   const [scope, setScope] = useState<ScopeKey | ''>('')
   const [status, setStatus] = useState<StatusFilter>('active')
+  const [stored, setSort] = useStoredState<SortKey>('fsg-clients-sort', 'name', isSort)
+  // Sorting by balance is only on offer to people who may see fees.
+  const sort: SortKey = stored === 'balance' && !can('view_fees') ? 'name' : stored
 
   const rows = useMemo(() => {
     const term = q.trim().toLowerCase()
-    return clients.filter(
-      (c) =>
-        (status === 'all' || c.active === (status === 'active')) &&
-        (!category || c.category === category) &&
-        (!scope || c.scopes.includes(scope)) &&
-        (!term ||
-          [c.name, c.code, c.place, c.phone, c.whatsapp, c.email, c.business, c.profession, c.gstin, c.pan].some((v) => v?.toLowerCase().includes(term))),
-    )
-  }, [clients, q, category, scope, status])
+    return clients
+      .filter(
+        (c) =>
+          (status === 'all' || c.active === (status === 'active')) &&
+          (!category || c.category === category) &&
+          (!scope || c.scopes.includes(scope)) &&
+          (!term ||
+            [c.name, c.code, c.place, c.phone, c.whatsapp, c.email, c.business, c.profession, c.gstin, c.pan].some((v) => v?.toLowerCase().includes(term))),
+      )
+      .sort(SORTS[sort].cmp)
+  }, [clients, q, category, scope, status, sort])
 
   const activeCount = clients.filter((c) => c.active).length
 
@@ -40,9 +65,11 @@ export default function Clients() {
         title="Clients"
         subtitle={`${activeCount} active · ${clients.length - activeCount} inactive`}
         actions={
-          <Button variant="primary" icon={<Plus size={16} />} onClick={() => setParams({ new: '1' })}>
-            Add client
-          </Button>
+          can('edit_clients') && (
+            <Button variant="primary" icon={<Plus size={16} />} onClick={() => setParams({ new: '1' })}>
+              Add client
+            </Button>
+          )
         }
       />
 
@@ -66,11 +93,20 @@ export default function Clients() {
           </Select>
           <Select value={scope} onChange={(e) => setScope(e.target.value as ScopeKey | '')} fit aria-label="Scope" className="max-sm:min-w-0 max-sm:flex-1 max-sm:basis-[40%]">
             <option value="">Any scope</option>
-            {SCOPES.map((s) => (
+            {scopes.list.map((s) => (
               <option key={s.key} value={s.key}>
                 {s.label}
               </option>
             ))}
+          </Select>
+          <Select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} fit aria-label="Sort by" className="max-sm:min-w-0 max-sm:flex-1 max-sm:basis-[40%]">
+            {(Object.keys(SORTS) as SortKey[])
+              .filter((k) => k !== 'balance' || can('view_fees'))
+              .map((k) => (
+                <option key={k} value={k}>
+                  Sort: {SORTS[k].label}
+                </option>
+              ))}
           </Select>
           <Segmented
             value={status}
@@ -111,6 +147,7 @@ export default function Clients() {
                   <Th>Business / profession</Th>
                   <Th>Place</Th>
                   <Th>Phone</Th>
+                  {sort === 'balance' && <Th align="right">Balance</Th>}
                   <Th>Scope of work</Th>
                 </tr>
               </thead>
@@ -150,6 +187,11 @@ export default function Clients() {
                         <WhatsAppLink number={c.whatsapp} compact />
                       </span>
                     </Td>
+                    {sort === 'balance' && (
+                      <Td label="Balance" className={cn('tnum text-right font-bold @max-3xl:text-left', balanceOf(c) > 0 ? 'text-amber-700' : 'text-ink-400')}>
+                        {balanceOf(c) > 0 ? inr(balanceOf(c)) : '—'}
+                      </Td>
+                    )}
                     <Td label="Scope of work" className="col-span-full">
                       <ScopeChips scopes={c.scopes} max={4} />
                     </Td>
@@ -164,7 +206,7 @@ export default function Clients() {
         </p>
       </Card>
 
-      {params.get('new') && <ClientForm onClose={() => setParams({})} onSaved={(id) => navigate(`/clients/${id}`)} />}
+      {params.get('new') && can('edit_clients') && <ClientForm onClose={() => setParams({})} onSaved={(id) => navigate(`/clients/${id}`)} />}
     </>
   )
 }

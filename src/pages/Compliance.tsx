@@ -1,13 +1,13 @@
-import { Check, Plus, Search, SearchX, X } from 'lucide-react'
+import { Check, Inbox, Plus, Search, SearchX, X } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { Due } from '../components/bits'
 import { Badge, Button, Card, Empty, Field, Input, Modal, PageHeader, Segmented, Select, StatusSelect, Td, Th } from '../components/ui'
 import { itDueDate } from '../lib/deadlines'
-import { addDays, cn, currentGstPeriod, financialYear, inr, periodLabel, todayISO } from '../lib/format'
-import { GST_STATUS, SERVICE_KINDS, SIMPLE_STATUS, options, type Tone, type TrackerTab } from '../lib/meta'
-import { useStore } from '../store'
-import type { AuditFiling, Client, GstFiling, ItFiling, ServiceKind, SimpleStatus, TdsPayment } from '../types'
+import { addDays, cn, currentGstPeriod, financialYear, fmtDate, inr, periodLabel, todayISO } from '../lib/format'
+import { GST_DATA_TYPES, GST_STATUS, SERVICE_KINDS, SIMPLE_STATUS, options, type Tone, type TrackerTab } from '../lib/meta'
+import { useCan, useStore } from '../store'
+import type { AuditFiling, Client, GstDataType, GstFiling, ItFiling, ServiceKind, SimpleStatus, TdsPayment } from '../types'
 
 /* ---------- Small inline editors shared by every tracker ---------- */
 
@@ -73,6 +73,57 @@ function Tick({ checked, onChange, label }: { checked: boolean; onChange: (v: bo
   )
 }
 
+/**
+ * The day the client's data came in. Until then a button marks it in today, which is when it usually happens;
+ * after that the date can be changed, or cleared to mark it not in again.
+ */
+function DataIn({ value, onChange }: { value?: string; onChange: (date?: string) => void }) {
+  if (!value)
+    return (
+      <button
+        type="button"
+        onClick={() => onChange(todayISO())}
+        title="Not in yet. Click when it arrives: it is dated today, and the date can be changed after."
+        className="inline-flex h-7 items-center gap-1.5 rounded-md px-1.5 text-[13px] font-semibold whitespace-nowrap text-amber-700 hover:bg-amber-50 @max-3xl:-ml-1.5"
+      >
+        <Inbox size={14} />
+        Mark in
+      </button>
+    )
+  return (
+    <input
+      type="date"
+      value={value}
+      max={todayISO()}
+      onChange={(e) => onChange(e.target.value || undefined)}
+      aria-label="Data came in on"
+      title={`Data in ${fmtDate(value, true)}. Clear the date to mark it not in.`}
+      className="tnum h-7 w-[124px] rounded-md bg-transparent px-1.5 text-[13px] font-medium text-ink-700 hover:bg-ink-100 focus:bg-white focus:ring-2 focus:ring-brand-500 focus:outline-none @max-3xl:-ml-1.5"
+    />
+  )
+}
+
+function DataTypeSelect({ value, onChange }: { value?: GstDataType; onChange: (v?: GstDataType) => void }) {
+  return (
+    <select
+      value={value ?? ''}
+      onChange={(e) => onChange((e.target.value || undefined) as GstDataType | undefined)}
+      aria-label="Data type"
+      className={cn(
+        'chevron h-7 max-w-full appearance-none rounded-md bg-transparent pr-5 pl-1.5 text-[13px] font-medium hover:bg-ink-100 focus:ring-2 focus:ring-brand-500 focus:outline-none @max-3xl:-ml-1.5',
+        value ? 'text-ink-700' : 'text-ink-400',
+      )}
+    >
+      <option value="">Not set</option>
+      {GST_DATA_TYPES.map((d) => (
+        <option key={d.value} value={d.value}>
+          {d.label}
+        </option>
+      ))}
+    </select>
+  )
+}
+
 function ClientCell({ client, sub }: { client?: Client; sub?: ReactNode }) {
   if (!client) return <span className="text-ink-400">Unknown client</span>
   return (
@@ -85,12 +136,15 @@ function ClientCell({ client, sub }: { client?: Client; sub?: ReactNode }) {
   )
 }
 
-/** Four or five figures across the top of a tracker. */
-function Summary({ items }: { items: Array<{ label: string; value: ReactNode; tone?: Tone }> }) {
+const SUMMARY_COLS: Record<number, string> = { 3: 'sm:grid-cols-3', 4: 'sm:grid-cols-4', 5: 'sm:grid-cols-5', 6: 'sm:grid-cols-3 xl:grid-cols-6' }
+
+/** A handful of figures across the top of a tracker. Pass `false` for one that does not apply to this viewer. */
+function Summary({ items }: { items: Array<{ label: string; value: ReactNode; tone?: Tone } | false> }) {
   const color: Partial<Record<Tone, string>> = { red: 'text-rose-600', amber: 'text-amber-700', green: 'text-emerald-700' }
+  const shown = items.filter((it) => it !== false)
   return (
-    <dl className={cn('grid grid-cols-2 divide-ink-100 border-b border-ink-100 sm:divide-x', items.length === 5 ? 'sm:grid-cols-5' : 'sm:grid-cols-4')}>
-      {items.map((it) => (
+    <dl className={cn('grid grid-cols-2 divide-ink-100 border-b border-ink-100 sm:divide-x', SUMMARY_COLS[shown.length])}>
+      {shown.map((it) => (
         <div key={it.label} className="px-5 py-3">
           <dt className="text-xs font-semibold text-ink-500">{it.label}</dt>
           <dd className={cn('tnum mt-0.5 text-lg font-extrabold', (it.tone && color[it.tone]) || 'text-ink-900')}>{it.value}</dd>
@@ -294,7 +348,7 @@ const GST_VIEWS: Array<{ value: GstView; label: string }> = [
   { value: 'pending', label: 'Anything pending' },
   { value: 'gstr1', label: 'GSTR-1 pending' },
   { value: 'gstr3b', label: 'GSTR-3B pending' },
-  { value: 'no_data', label: 'No data yet' },
+  { value: 'no_data', label: 'Data not in' },
   { value: 'filed', label: 'Both filed' },
 ]
 
@@ -302,13 +356,22 @@ function GstTracker() {
   const gst = useStore((s) => s.gst)
   const updateGst = useStore((s) => s.updateGst)
   const clients = useClientMap()
+  const fees = useCan()('view_fees')
   const f = useFilters()
   const current = currentGstPeriod()
   const periods = useMemo(() => [...new Set([current, ...gst.map((g) => g.period)])].sort().reverse(), [gst, current])
   const [period, setPeriod] = useState(current)
   const [view, setView] = useState<GstView | ''>('')
   const [freq, setFreq] = useState<'M' | 'Q' | ''>('')
+  const [dataType, setDataType] = useState<GstDataType | ''>('')
   const [owing, setOwing] = useState(false)
+  // Once the data is in, a return that was waiting for it can begin.
+  const setDataIn = (g: GstFiling, dataIn?: string) =>
+    updateGst(g.id, {
+      dataIn,
+      ...(dataIn && g.gstr1 === 'data_pending' && { gstr1: 'to_begin' }),
+      ...(dataIn && g.gstr3b === 'data_pending' && { gstr3b: 'to_begin' }),
+    })
 
   const isDone = (s: GstFiling['gstr1']) => s === 'filed' || s === 'nil' || s === 'na'
   const balance = (g: GstFiling) => g.prevBalance + g.fee - g.received
@@ -317,20 +380,27 @@ function GstTracker() {
     (view === 'pending' && (!isDone(g.gstr1) || !isDone(g.gstr3b))) ||
     (view === 'gstr1' && !isDone(g.gstr1)) ||
     (view === 'gstr3b' && !isDone(g.gstr3b)) ||
-    (view === 'no_data' && g.gstr1 === 'data_pending') ||
+    (view === 'no_data' && g.gstr1 !== 'na' && !g.dataIn) ||
     (view === 'filed' && g.gstr1 !== 'na' && isDone(g.gstr1) && isDone(g.gstr3b))
 
   const all = useMemo(() => gst.filter((g) => g.period === period), [gst, period])
   const rows = all.filter(
-    (g) => f.match(g) && inView(g) && (!freq || (clients.get(g.clientId)?.gstFrequency ?? 'M') === freq) && (!owing || balance(g) > 0),
+    (g) =>
+      f.match(g) &&
+      inView(g) &&
+      (!freq || (clients.get(g.clientId)?.gstFrequency ?? 'M') === freq) &&
+      (!dataType || g.dataType === dataType) &&
+      (!owing || (fees && balance(g) > 0)),
   )
   const live = rows.filter((g) => g.gstr1 !== 'na')
   const filed = (k: 'gstr1' | 'gstr3b') => live.filter((g) => g[k] === 'filed' || g[k] === 'nil').length
-  const dirty = f.dirty || !!view || !!freq || owing
+  const notIn = live.filter((g) => !g.dataIn).length
+  const dirty = f.dirty || !!view || !!freq || !!dataType || owing
   const clear = () => {
     f.reset()
     setView('')
     setFreq('')
+    setDataType('')
     setOwing(false)
   }
 
@@ -359,39 +429,48 @@ function GstTracker() {
             { value: 'Q', label: 'Quarterly' },
           ]}
         />
-        <label className="flex h-8 items-center gap-2 px-1 text-[13px] font-semibold text-ink-600">
-          <Tick checked={owing} onChange={setOwing} label="Show only clients with a fee balance" />
-          Fee balance
-        </label>
+        <FilterSelect value={dataType} onChange={setDataType} label="Data type" any="Any data type" items={GST_DATA_TYPES} />
+        {fees && (
+          <label className="flex h-8 items-center gap-2 px-1 text-[13px] font-semibold text-ink-600">
+            <Tick checked={owing} onChange={setOwing} label="Show only clients with a fee balance" />
+            Fee balance
+          </label>
+        )}
       </FilterBar>
       <Summary
         items={[
           { label: 'GSTR-1 filed', value: `${filed('gstr1')} / ${live.length}` },
           { label: 'GSTR-3B filed', value: `${filed('gstr3b')} / ${live.length}` },
-          { label: 'No data yet', value: live.filter((g) => g.gstr1 === 'data_pending').length, tone: live.some((g) => g.gstr1 === 'data_pending') ? 'red' : undefined },
-          { label: 'Fee balance', value: inr(rows.reduce((s, g) => s + Math.max(0, balance(g)), 0)), tone: 'amber' },
+          { label: 'Data not in', value: notIn, tone: notIn ? 'red' : undefined },
+          fees && { label: 'Fee balance', value: inr(rows.reduce((s, g) => s + Math.max(0, balance(g)), 0)), tone: 'amber' },
         ]}
       />
       {rows.length === 0 ? (
         <NoMatch onClear={clear} />
       ) : (
         <TableShell
-          minWidth={900}
+          minWidth={fees ? 1180 : 900}
           head={
             <>
               <Th>Client</Th>
+              <Th>Data in</Th>
+              <Th>Data type</Th>
               <Th>GSTR-1</Th>
               <Th>GSTR-3B</Th>
               <Th>Assigned</Th>
-              <Th align="right">Fee</Th>
-              <Th align="right">Received</Th>
-              <Th align="right">Balance</Th>
+              {fees && (
+                <>
+                  <Th align="right">Fee</Th>
+                  <Th align="right">Received</Th>
+                  <Th align="right">Balance</Th>
+                </>
+              )}
               <Th>Remark</Th>
             </>
           }
           foot={
-            <Totals
-              lead={4}
+            fees && <Totals
+              lead={6}
               trail={2}
               balanceColumn
               count={rows.length}
@@ -417,6 +496,8 @@ function GstTracker() {
                     }
                   />
                 </Td>
+                <Td label="Data in">{g.gstr1 === 'na' ? <span className="text-ink-300">—</span> : <DataIn value={g.dataIn} onChange={(d) => setDataIn(g, d)} />}</Td>
+                <Td label="Data type">{g.gstr1 === 'na' ? <span className="text-ink-300">—</span> : <DataTypeSelect value={g.dataType} onChange={(dataType) => updateGst(g.id, { dataType })} />}</Td>
                 <Td label="GSTR-1">
                   <StatusSelect label="GSTR-1 status" value={g.gstr1} options={options(GST_STATUS)} onChange={(gstr1) => updateGst(g.id, { gstr1 })} />
                 </Td>
@@ -426,14 +507,18 @@ function GstTracker() {
                 <Td label="Assigned">
                   <AssigneeSelect value={g.assigneeId} onChange={(assigneeId) => updateGst(g.id, { assigneeId })} />
                 </Td>
-                <Td label="Fee" className="tnum text-right whitespace-nowrap text-ink-600">
-                  {g.fee ? inr(g.fee) : '—'}
-                  {g.prevBalance > 0 && <p className="text-xs text-amber-700">+{inr(g.prevBalance)} old</p>}
-                </Td>
-                <Td label="Received" className="text-right">
-                  <Money value={g.received} onChange={(received) => updateGst(g.id, { received })} label="Fee received" />
-                </Td>
-                <Td label="Balance" className={cn('tnum text-right font-bold', bal > 0 ? 'text-amber-700' : 'text-ink-400')}>{bal > 0 ? inr(bal) : '—'}</Td>
+                {fees && (
+                  <>
+                    <Td label="Fee" className="tnum text-right whitespace-nowrap text-ink-600">
+                      {g.fee ? inr(g.fee) : '—'}
+                      {g.prevBalance > 0 && <p className="text-xs text-amber-700">+{inr(g.prevBalance)} old</p>}
+                    </Td>
+                    <Td label="Received" className="text-right">
+                      <Money value={g.received} onChange={(received) => updateGst(g.id, { received })} label="Fee received" />
+                    </Td>
+                    <Td label="Balance" className={cn('tnum text-right font-bold', bal > 0 ? 'text-amber-700' : 'text-ink-400')}>{bal > 0 ? inr(bal) : '—'}</Td>
+                  </>
+                )}
                 <Td label="Remark" className="col-span-full">
                   <InlineText value={g.remark} onChange={(remark) => updateGst(g.id, { remark })} />
                 </Td>
@@ -443,7 +528,7 @@ function GstTracker() {
         </TableShell>
       )}
       <Footer shown={rows.length} total={all.length} dirty={dirty} onClear={clear}>
-        Statuses, fees received and remarks save as you change them.
+        Data in, statuses{fees && ', fees received'} and remarks save as you change them. Marking the data in moves a return waiting for it to To begin.
       </Footer>
     </Card>
   )
@@ -463,6 +548,7 @@ function TdsTracker() {
   const tds = useStore((s) => s.tds)
   const updateTds = useStore((s) => s.updateTds)
   const clients = useClientMap()
+  const fees = useCan()('view_fees')
   const f = useFilters()
   const current = currentGstPeriod()
   const months = useMemo(() => [...new Set([current, ...tds.flatMap((t) => Object.keys(t.payments))])].sort().reverse(), [tds, current])
@@ -471,11 +557,18 @@ function TdsTracker() {
   const [quarter, setQuarter] = useState('')
   const [status, setStatus] = useState<SimpleStatus | ''>('')
   const [owing, setOwing] = useState(false)
+  const [notIn, setNotIn] = useState(false)
   const fy = tds[0]?.fy ?? financialYear()
   const monthLabel = periodLabel(month, true)
   // A month with nothing recorded has not been deposited yet.
   const paymentFor = (t: (typeof tds)[number]) => t.payments[month] ?? 'due'
   const owed = (t: (typeof tds)[number]) => Math.max(0, t.fee - t.received)
+  const setDataIn = (t: (typeof tds)[number], date?: string) => {
+    const dataIn = { ...t.dataIn }
+    if (date) dataIn[month] = date
+    else delete dataIn[month]
+    updateTds(t.id, { dataIn })
+  }
 
   const rows = tds.filter(
     (t) =>
@@ -483,16 +576,18 @@ function TdsTracker() {
       (!payment || paymentFor(t) === payment) &&
       // With a quarter picked the status applies to it; without one, to any quarter.
       (!status || (quarter ? t.quarters[Number(quarter)] === status : t.quarters.includes(status))) &&
-      (!owing || owed(t) > 0),
+      (!notIn || !t.dataIn[month]) &&
+      (!owing || (fees && owed(t) > 0)),
   )
   const feeBalance = rows.reduce((s, t) => s + owed(t), 0)
-  const dirty = f.dirty || !!payment || !!quarter || !!status || owing
+  const dirty = f.dirty || !!payment || !!quarter || !!status || owing || notIn
   const clear = () => {
     f.reset()
     setPayment('')
     setQuarter('')
     setStatus('')
     setOwing(false)
+    setNotIn(false)
   }
   const shownQuarters = quarter ? [Number(quarter)] : [0, 1, 2, 3]
 
@@ -514,40 +609,52 @@ function TdsTracker() {
         <FilterSelect value={quarter} onChange={setQuarter} label="Quarter" any="All quarters" items={QUARTERS} />
         <FilterSelect value={status} onChange={setStatus} label="Return status" any="Any return status" items={SIMPLE_ITEMS} />
         <label className="flex h-8 items-center gap-2 px-1 text-[13px] font-semibold text-ink-600">
-          <Tick checked={owing} onChange={setOwing} label="Show only deductors with a fee balance" />
-          Fee balance
+          <Tick checked={notIn} onChange={setNotIn} label={`Show only deductors whose ${monthLabel} data is not in`} />
+          Data not in
         </label>
+        {fees && (
+          <label className="flex h-8 items-center gap-2 px-1 text-[13px] font-semibold text-ink-600">
+            <Tick checked={owing} onChange={setOwing} label="Show only deductors with a fee balance" />
+            Fee balance
+          </label>
+        )}
       </FilterBar>
       <Summary
         items={[
           { label: 'Deductors', value: rows.length },
+          { label: `${monthLabel} data not in`, value: rows.filter((t) => !t.dataIn[month]).length, tone: 'red' },
           { label: `${monthLabel} payment due`, value: rows.filter((t) => paymentFor(t) === 'due').length, tone: 'amber' },
           { label: 'Q1 returns done', value: `${rows.filter((t) => isClosed(t.quarters[0])).length} / ${rows.length}` },
           { label: 'Q2 returns done', value: `${rows.filter((t) => isClosed(t.quarters[1])).length} / ${rows.length}` },
-          { label: 'Fee balance', value: inr(feeBalance), tone: 'amber' },
+          fees && { label: 'Fee balance', value: inr(feeBalance), tone: 'amber' },
         ]}
       />
       {rows.length === 0 ? (
         <NoMatch onClear={clear} />
       ) : (
         <TableShell
-          minWidth={quarter ? 860 : 1100}
+          minWidth={(quarter ? 860 : 1100) + (fees ? 140 : 0)}
           head={
             <>
               <Th>Client</Th>
+              <Th>{monthLabel} data in</Th>
               <Th>{monthLabel} payment</Th>
               {shownQuarters.map((q) => (
                 <Th key={q}>Q{q + 1} return</Th>
               ))}
               <Th>Assigned</Th>
-              <Th align="right">Fee</Th>
-              <Th align="right">Received</Th>
+              {fees && (
+                <>
+                  <Th align="right">Fee</Th>
+                  <Th align="right">Received</Th>
+                </>
+              )}
               <Th>Remark</Th>
             </>
           }
           foot={
-            <Totals
-              lead={shownQuarters.length + 3}
+            fees && <Totals
+              lead={shownQuarters.length + 4}
               trail={1}
               count={rows.length}
               fee={rows.reduce((s, t) => s + t.fee, 0)}
@@ -562,6 +669,9 @@ function TdsTracker() {
               <tr key={t.id}>
                 <Td>
                   <ClientCell client={c} sub={<>TAN {c?.tan}</>} />
+                </Td>
+                <Td label={`${monthLabel} data in`}>
+                  <DataIn value={t.dataIn[month]} onChange={(d) => setDataIn(t, d)} />
                 </Td>
                 <Td label={`${monthLabel} payment`}>
                   <StatusSelect
@@ -588,10 +698,14 @@ function TdsTracker() {
                 <Td label="Assigned">
                   <AssigneeSelect value={t.assigneeId} onChange={(assigneeId) => updateTds(t.id, { assigneeId })} />
                 </Td>
-                <Td label="Fee" className="tnum text-right text-ink-600">{t.fee ? inr(t.fee) : '—'}</Td>
-                <Td label="Received" className="text-right">
-                  <Money value={t.received} onChange={(received) => updateTds(t.id, { received })} label="Fee received" />
-                </Td>
+                {fees && (
+                  <>
+                    <Td label="Fee" className="tnum text-right text-ink-600">{t.fee ? inr(t.fee) : '—'}</Td>
+                    <Td label="Received" className="text-right">
+                      <Money value={t.received} onChange={(received) => updateTds(t.id, { received })} label="Fee received" />
+                    </Td>
+                  </>
+                )}
                 <Td label="Remark" className="col-span-full">
                   <InlineText value={t.remark} onChange={(remark) => updateTds(t.id, { remark })} />
                 </Td>
@@ -601,7 +715,7 @@ function TdsTracker() {
         </TableShell>
       )}
       <Footer shown={rows.length} total={tds.length} dirty={dirty} onClear={clear}>
-        FY {fy} · payment every month, return every quarter · the fee is what has been billed this year so far. Income tax and TRACES logins sit on each client's page.
+        FY {fy} · deduction details and payment every month, return every quarter{fees && ' · the fee is what has been billed this year so far'}. Income tax and TRACES logins sit on each client's page.
       </Footer>
     </Card>
   )
@@ -613,23 +727,26 @@ function ItTracker() {
   const it = useStore((s) => s.it)
   const updateIt = useStore((s) => s.updateIt)
   const clients = useClientMap()
+  const fees = useCan()('view_fees')
   const f = useFilters()
   const [kind, setKind] = useState<'all' | ItFiling['kind']>('all')
   const [status, setStatus] = useState<SimpleStatus | ''>('')
   const [owing, setOwing] = useState(false)
+  const [notIn, setNotIn] = useState(false)
   const done = (r: ItFiling) => isClosed(r.status)
 
   // The tabs count what the other filters leave, so the numbers match the table.
-  const matched = it.filter((r) => f.match(r) && (!status || r.status === status) && (!owing || r.fee - r.received > 0))
+  const matched = it.filter((r) => f.match(r) && (!status || r.status === status) && (!notIn || !r.dataIn) && (!owing || (fees && r.fee - r.received > 0)))
   const rows = kind === 'all' ? matched : matched.filter((r) => r.kind === kind)
   // A return's fee falls due once it is filed.
   const feeBalance = rows.reduce((s, r) => s + (done(r) ? Math.max(0, r.fee - r.received) : 0), 0)
-  const dirty = f.dirty || kind !== 'all' || !!status || owing
+  const dirty = f.dirty || kind !== 'all' || !!status || owing || notIn
   const clear = () => {
     f.reset()
     setKind('all')
     setStatus('')
     setOwing(false)
+    setNotIn(false)
   }
 
   return (
@@ -650,36 +767,48 @@ function ItTracker() {
       >
         <FilterSelect value={status} onChange={setStatus} label="Return status" any="Any status" items={SIMPLE_ITEMS} />
         <label className="flex h-8 items-center gap-2 px-1 text-[13px] font-semibold text-ink-600">
-          <Tick checked={owing} onChange={setOwing} label="Show only returns with a fee balance" />
-          Fee balance
+          <Tick checked={notIn} onChange={setNotIn} label="Show only returns whose data is not in" />
+          Data not in
         </label>
+        {fees && (
+          <label className="flex h-8 items-center gap-2 px-1 text-[13px] font-semibold text-ink-600">
+            <Tick checked={owing} onChange={setOwing} label="Show only returns with a fee balance" />
+            Fee balance
+          </label>
+        )}
       </FilterBar>
       <Summary
         items={[
           { label: 'Returns', value: rows.length },
+          { label: 'Data not in', value: rows.filter((r) => !r.dataIn && !done(r)).length, tone: 'red' },
           { label: 'Filed or completed', value: `${rows.filter(done).length} / ${rows.length}` },
           { label: 'Pending', value: rows.filter((r) => r.status === 'pending').length, tone: 'amber' },
-          { label: 'Fee balance', value: inr(feeBalance), tone: 'amber' },
+          fees && { label: 'Fee balance', value: inr(feeBalance), tone: 'amber' },
         ]}
       />
       {rows.length === 0 ? (
         <NoMatch onClear={clear} />
       ) : (
         <TableShell
-          minWidth={1000}
+          minWidth={fees ? 1140 : 900}
           head={
             <>
               <Th>Client</Th>
               <Th>Type</Th>
               <Th>Due</Th>
+              <Th>Data in</Th>
               <Th>Status</Th>
               <Th>Assigned</Th>
-              <Th align="right">Fee</Th>
-              <Th align="right">Received</Th>
+              {fees && (
+                <>
+                  <Th align="right">Fee</Th>
+                  <Th align="right">Received</Th>
+                </>
+              )}
               <Th>Remark</Th>
             </>
           }
-          foot={<Totals lead={5} trail={1} count={rows.length} fee={rows.reduce((s, r) => s + r.fee, 0)} received={rows.reduce((s, r) => s + r.received, 0)} balance={feeBalance} />}
+          foot={fees && <Totals lead={6} trail={1} count={rows.length} fee={rows.reduce((s, r) => s + r.fee, 0)} received={rows.reduce((s, r) => s + r.received, 0)} balance={feeBalance} />}
         >
           {rows.map((r) => {
             const c = clients.get(r.clientId)
@@ -694,16 +823,23 @@ function ItTracker() {
                 <Td label="Due" className="text-[13px]">
                   <Due date={itDueDate(r, c)} done={done(r)} compact />
                 </Td>
+                <Td label="Data in">
+                  <DataIn value={r.dataIn} onChange={(dataIn) => updateIt(r.id, { dataIn })} />
+                </Td>
                 <Td label="Status">
                   <StatusSelect label="Return status" value={r.status} options={SIMPLE_ITEMS} onChange={(status) => updateIt(r.id, { status })} />
                 </Td>
                 <Td label="Assigned">
                   <AssigneeSelect value={r.assigneeId} onChange={(assigneeId) => updateIt(r.id, { assigneeId })} />
                 </Td>
-                <Td label="Fee" className="tnum text-right text-ink-600">{inr(r.fee)}</Td>
-                <Td label="Received" className="text-right">
-                  <Money value={r.received} onChange={(received) => updateIt(r.id, { received })} label="Fee received" />
-                </Td>
+                {fees && (
+                  <>
+                    <Td label="Fee" className="tnum text-right text-ink-600">{inr(r.fee)}</Td>
+                    <Td label="Received" className="text-right">
+                      <Money value={r.received} onChange={(received) => updateIt(r.id, { received })} label="Fee received" />
+                    </Td>
+                  </>
+                )}
                 <Td label="Remark" className="col-span-full">
                   <InlineText value={r.remark} onChange={(remark) => updateIt(r.id, { remark })} placeholder={r.status === 'pending' ? 'Why is it pending?' : 'Add remark'} />
                 </Td>
@@ -727,26 +863,34 @@ function AuditTracker() {
   const audits = useStore((s) => s.audits)
   const updateAudit = useStore((s) => s.updateAudit)
   const clients = useClientMap()
+  const fees = useCan()('view_fees')
   const f = useFilters()
   const [kind, setKind] = useState<AuditFiling['kind'] | ''>('')
   const [status, setStatus] = useState<SimpleStatus | ''>('')
   const [recon, setRecon] = useState<'open' | 'done' | ''>('')
   const [owing, setOwing] = useState(false)
+  const [notIn, setNotIn] = useState(false)
   // As with returns, an audit's fee falls due once it is signed off; what comes in earlier is an advance.
   const owed = (a: AuditFiling) => (isClosed(a.status) ? Math.max(0, a.fee - a.received) : 0)
 
   const rows = audits.filter(
     (a) =>
-      f.match(a) && (!kind || a.kind === kind) && (!status || a.status === status) && (!recon || a.reconciliation === (recon === 'done')) && (!owing || owed(a) > 0),
+      f.match(a) &&
+      (!kind || a.kind === kind) &&
+      (!status || a.status === status) &&
+      (!recon || a.reconciliation === (recon === 'done')) &&
+      (!notIn || !a.dataIn) &&
+      (!owing || (fees && owed(a) > 0)),
   )
   const feeBalance = rows.reduce((s, a) => s + owed(a), 0)
-  const dirty = f.dirty || !!kind || !!status || !!recon || owing
+  const dirty = f.dirty || !!kind || !!status || !!recon || owing || notIn
   const clear = () => {
     f.reset()
     setKind('')
     setStatus('')
     setRecon('')
     setOwing(false)
+    setNotIn(false)
   }
 
   return (
@@ -765,39 +909,49 @@ function AuditTracker() {
           ]}
         />
         <label className="flex h-8 items-center gap-2 px-1 text-[13px] font-semibold text-ink-600">
-          <Tick checked={owing} onChange={setOwing} label="Show only audits with a fee balance" />
-          Fee balance
+          <Tick checked={notIn} onChange={setNotIn} label="Show only audits whose data is not in" />
+          Data not in
         </label>
+        {fees && (
+          <label className="flex h-8 items-center gap-2 px-1 text-[13px] font-semibold text-ink-600">
+            <Tick checked={owing} onChange={setOwing} label="Show only audits with a fee balance" />
+            Fee balance
+          </label>
+        )}
       </FilterBar>
       <Summary
         items={[
           { label: 'Audits', value: rows.length },
           { label: 'Filed or completed', value: `${rows.filter((a) => isClosed(a.status)).length} / ${rows.length}` },
           { label: 'Reconciliation open', value: rows.filter((a) => !a.reconciliation).length, tone: 'amber' },
-          { label: 'Internal awaiting data', value: rows.filter((a) => a.kind === 'Internal audit' && !a.dataReceived).length },
-          { label: 'Fee balance', value: inr(feeBalance), tone: 'amber' },
+          { label: 'Data not in', value: rows.filter((a) => !a.dataIn).length, tone: 'red' },
+          fees && { label: 'Fee balance', value: inr(feeBalance), tone: 'amber' },
         ]}
       />
       {rows.length === 0 ? (
         <NoMatch onClear={clear} />
       ) : (
         <TableShell
-          minWidth={1120}
+          minWidth={fees ? 1180 : 960}
           head={
             <>
               <Th>Client</Th>
               <Th>Audit</Th>
               <Th>Due</Th>
-              <Th align="center">Data in</Th>
+              <Th>Data in</Th>
               <Th align="center">Reconciled</Th>
               <Th>Status</Th>
               <Th>Assigned</Th>
-              <Th align="right">Fee</Th>
-              <Th align="right">Received</Th>
+              {fees && (
+                <>
+                  <Th align="right">Fee</Th>
+                  <Th align="right">Received</Th>
+                </>
+              )}
               <Th>Remark</Th>
             </>
           }
-          foot={<Totals lead={7} trail={1} count={rows.length} fee={rows.reduce((s, a) => s + a.fee, 0)} received={rows.reduce((s, a) => s + a.received, 0)} balance={feeBalance} />}
+          foot={fees && <Totals lead={7} trail={1} count={rows.length} fee={rows.reduce((s, a) => s + a.fee, 0)} received={rows.reduce((s, a) => s + a.received, 0)} balance={feeBalance} />}
         >
           {rows.map((a) => {
             const c = clients.get(a.clientId)
@@ -814,13 +968,7 @@ function AuditTracker() {
                   <Due date={a.dueDate} done={closed} compact={closed} />
                 </Td>
                 <Td label="Data in">
-                  <span className="flex justify-center">
-                    {a.kind === 'Internal audit' ? (
-                      <Tick checked={a.dataReceived} onChange={(dataReceived) => updateAudit(a.id, { dataReceived })} label="Data received" />
-                    ) : (
-                      <span className="text-ink-300">—</span>
-                    )}
-                  </span>
+                  <DataIn value={a.dataIn} onChange={(dataIn) => updateAudit(a.id, { dataIn })} />
                 </Td>
                 <Td label="Reconciled">
                   <span className="flex justify-center">
@@ -833,10 +981,14 @@ function AuditTracker() {
                 <Td label="Assigned">
                   <AssigneeSelect value={a.assigneeId} onChange={(assigneeId) => updateAudit(a.id, { assigneeId })} />
                 </Td>
-                <Td label="Fee" className="tnum text-right text-ink-600">{inr(a.fee)}</Td>
-                <Td label="Received" className="text-right">
-                  <Money value={a.received} onChange={(received) => updateAudit(a.id, { received })} label="Fee received" />
-                </Td>
+                {fees && (
+                  <>
+                    <Td label="Fee" className="tnum text-right text-ink-600">{inr(a.fee)}</Td>
+                    <Td label="Received" className="text-right">
+                      <Money value={a.received} onChange={(received) => updateAudit(a.id, { received })} label="Fee received" />
+                    </Td>
+                  </>
+                )}
                 <Td label="Remark" className="col-span-full">
                   <InlineText value={a.remark} onChange={(remark) => updateAudit(a.id, { remark })} />
                 </Td>
@@ -846,7 +998,7 @@ function AuditTracker() {
         </TableShell>
       )}
       <Footer shown={rows.length} total={audits.length} dirty={dirty} onClear={clear}>
-        The fee balance counts audits that are filed or completed; money received before that is an advance.
+        {fees ? 'The fee balance counts audits that are filed or completed; money received before that is an advance.' : 'Tax, statutory and internal audits for the financial year.'}
       </Footer>
     </Card>
   )
@@ -856,6 +1008,7 @@ function AuditTracker() {
 
 function ServiceForm({ onClose, clientId = '' }: { onClose: () => void; clientId?: string }) {
   const addService = useStore((s) => s.addService)
+  const fees = useCan()('view_fees')
   const clients = useStore((s) => s.clients)
   const employees = useStore((s) => s.employees)
   const [f, setF] = useState({
@@ -865,7 +1018,8 @@ function ServiceForm({ onClose, clientId = '' }: { onClose: () => void; clientId
     details: '',
     committedDate: addDays(todayISO(), 10),
     assigneeId: employees.find((e) => e.id === 'e-anna')?.id ?? employees[0].id,
-    fee: 3000,
+    // Someone who cannot see fees leaves it at nothing; a head fills it in from the tracker.
+    fee: fees ? 3000 : 0,
   })
   const party = f.clientId ? (clients.find((c) => c.id === f.clientId)?.name ?? '') : f.party.trim()
 
@@ -932,9 +1086,11 @@ function ServiceForm({ onClose, clientId = '' }: { onClose: () => void; clientId
             ))}
           </Select>
         </Field>
-        <Field label="Fee (₹)">
-          <Input type="number" min={0} step={500} value={f.fee} onChange={(e) => setF({ ...f, fee: Math.max(0, Number(e.target.value) || 0) })} />
-        </Field>
+        {fees && (
+          <Field label="Fee (₹)">
+            <Input type="number" min={0} step={500} value={f.fee} onChange={(e) => setF({ ...f, fee: Math.max(0, Number(e.target.value) || 0) })} />
+          </Field>
+        )}
       </div>
     </Modal>
   )
@@ -943,26 +1099,36 @@ function ServiceForm({ onClose, clientId = '' }: { onClose: () => void; clientId
 function ServiceTracker() {
   const services = useStore((s) => s.services)
   const updateService = useStore((s) => s.updateService)
+  const fees = useCan()('view_fees')
   const f = useFilters()
   const [adding, setAdding] = useState(false)
   const [kind, setKind] = useState<ServiceKind | ''>('')
   const [status, setStatus] = useState<SimpleStatus | ''>('')
   const [late, setLate] = useState(false)
+  const [notIn, setNotIn] = useState(false)
   const today = todayISO()
   const overdue = (s: (typeof services)[number]) => s.status !== 'completed' && s.committedDate < today
 
   const rows = useMemo(
     () => [...services].sort((a, b) => Number(a.status === 'completed') - Number(b.status === 'completed') || a.committedDate.localeCompare(b.committedDate)),
     [services],
-  ).filter((s) => f.match(s, `${s.party} ${s.kind} ${s.details ?? ''}`) && (!kind || s.kind === kind) && (!status || s.status === status) && (!late || overdue(s)))
+  ).filter(
+    (s) =>
+      f.match(s, `${s.party} ${s.kind} ${s.details ?? ''}`) &&
+      (!kind || s.kind === kind) &&
+      (!status || s.status === status) &&
+      (!late || overdue(s)) &&
+      (!notIn || (!s.dataIn && s.status !== 'completed')),
+  )
   const open = rows.filter((s) => s.status !== 'completed')
   const feeBalance = rows.reduce((sum, s) => sum + Math.max(0, s.fee - s.received), 0)
-  const dirty = f.dirty || !!kind || !!status || late
+  const dirty = f.dirty || !!kind || !!status || late || notIn
   const clear = () => {
     f.reset()
     setKind('')
     setStatus('')
     setLate(false)
+    setNotIn(false)
   }
 
   return (
@@ -974,6 +1140,10 @@ function ServiceTracker() {
           <Tick checked={late} onChange={setLate} label="Show only jobs past their committed date" />
           Past committed date
         </label>
+        <label className="flex h-8 items-center gap-2 px-1 text-[13px] font-semibold text-ink-600">
+          <Tick checked={notIn} onChange={setNotIn} label="Show only open jobs whose papers are not in" />
+          Data not in
+        </label>
         <Button size="sm" variant="primary" icon={<Plus size={15} />} onClick={() => setAdding(true)}>
           Add job
         </Button>
@@ -981,13 +1151,14 @@ function ServiceTracker() {
       <Summary
         items={[
           { label: 'Open jobs', value: open.length },
+          { label: 'Data not in', value: open.filter((s) => !s.dataIn).length, tone: 'amber' },
           { label: 'Past committed date', value: open.filter(overdue).length, tone: 'red' },
           { label: 'Completed', value: rows.length - open.length, tone: 'green' },
-          { label: 'Fee balance', value: inr(feeBalance), tone: 'amber' },
+          fees && { label: 'Fee balance', value: inr(feeBalance), tone: 'amber' },
         ]}
       />
       {rows.length === 0 ? (
-        f.client && !kind && !status && !late && !f.q.trim() && !f.assignee ? (
+        f.client && !kind && !status && !late && !notIn && !f.q.trim() && !f.assignee ? (
           <Empty
             title={`No one-time jobs for ${f.client.name} yet`}
             hint="Add the registration, certificate or application this client has asked for."
@@ -1002,20 +1173,25 @@ function ServiceTracker() {
         )
       ) : (
         <TableShell
-          minWidth={1000}
+          minWidth={fees ? 1140 : 920}
           head={
             <>
               <Th>Party</Th>
               <Th>Service</Th>
               <Th>Committed date</Th>
+              <Th>Data in</Th>
               <Th>Status</Th>
               <Th>Assigned</Th>
-              <Th align="right">Fee</Th>
-              <Th align="right">Received</Th>
+              {fees && (
+                <>
+                  <Th align="right">Fee</Th>
+                  <Th align="right">Received</Th>
+                </>
+              )}
               <Th>Remark</Th>
             </>
           }
-          foot={<Totals lead={5} trail={1} count={rows.length} fee={rows.reduce((sum, s) => sum + s.fee, 0)} received={rows.reduce((sum, s) => sum + s.received, 0)} balance={feeBalance} />}
+          foot={fees && <Totals lead={6} trail={1} count={rows.length} fee={rows.reduce((sum, s) => sum + s.fee, 0)} received={rows.reduce((sum, s) => sum + s.received, 0)} balance={feeBalance} />}
         >
           {rows.map((s) => (
             <tr key={s.id}>
@@ -1037,16 +1213,26 @@ function ServiceTracker() {
               <Td label="Committed date" className="text-[13px]">
                 <Due date={s.committedDate} done={s.status === 'completed'} />
               </Td>
+              <Td label="Data in">
+                <DataIn value={s.dataIn} onChange={(dataIn) => updateService(s.id, { dataIn })} />
+              </Td>
               <Td label="Status">
                 <StatusSelect label="Job status" value={s.status} options={SIMPLE_ITEMS} onChange={(status) => updateService(s.id, { status })} />
               </Td>
               <Td label="Assigned">
                 <AssigneeSelect value={s.assigneeId} onChange={(assigneeId) => updateService(s.id, { assigneeId })} />
               </Td>
-              <Td label="Fee" className="tnum text-right text-ink-600">{inr(s.fee)}</Td>
-              <Td label="Received" className="text-right">
-                <Money value={s.received} onChange={(received) => updateService(s.id, { received })} label="Fee received" />
-              </Td>
+              {fees && (
+                <>
+                  {/* Editable here, since a job added by someone who cannot see fees comes in at nothing. */}
+                  <Td label="Fee" className="text-right">
+                    <Money value={s.fee} onChange={(fee) => updateService(s.id, { fee })} label="Fee" />
+                  </Td>
+                  <Td label="Received" className="text-right">
+                    <Money value={s.received} onChange={(received) => updateService(s.id, { received })} label="Fee received" />
+                  </Td>
+                </>
+              )}
               <Td label="Remark" className="col-span-full">
                 <InlineText value={s.remark} onChange={(remark) => updateService(s.id, { remark })} />
               </Td>

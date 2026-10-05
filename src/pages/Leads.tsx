@@ -1,12 +1,13 @@
-import { ArrowRight, CalendarClock, MapPin, Plus, Send, Target, UserCheck, X } from 'lucide-react'
+import { ArrowRight, CalendarClock, MapPin, Plus, Search, SearchX, Send, Target, UserCheck, X } from 'lucide-react'
 import { useMemo, useState, type DragEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Due, PhoneLink, ScopeChips, WhatsAppLink } from '../components/bits'
 import { ScopePicker } from '../components/ClientForm'
 import { Avatar, Badge, Button, Card, Drawer, Empty, Field, IconButton, Input, Modal, PageHeader, Person, Segmented, Select, StatusSelect, Td, Textarea, Th, TONE_BAR } from '../components/ui'
 import { addDays, cn, daysUntil, fmtDate, todayISO } from '../lib/format'
-import { CATEGORIES, CATEGORY_TONE, LEAD_SOURCES, LEAD_STATUS, LEAD_STATUS_ORDER, SCOPE_LABEL, options, pruneScopeDetails } from '../lib/meta'
-import { useCurrentUser, useLookup, useStore } from '../store'
+import { CATEGORIES, CATEGORY_TONE, LEAD_SOURCES, LEAD_STATUS, LEAD_STATUS_ORDER, options, pruneScopeDetails } from '../lib/meta'
+import { useStoredState } from '../lib/useStoredState'
+import { useCurrentUser, useLookup, useScopes, useStore } from '../store'
 import type { ClientCategory, Lead, LeadStatus, ScopeDetails, ScopeKey } from '../types'
 
 const isOpen = (l: Lead) => l.status === 'new' || l.status === 'followup'
@@ -14,6 +15,7 @@ const isOpen = (l: Lead) => l.status === 'new' || l.status === 'followup'
 function LeadForm({ onClose }: { onClose: () => void }) {
   const addLead = useStore((s) => s.addLead)
   const employees = useStore((s) => s.employees)
+  const scopeDefs = useStore((s) => s.scopes)
   const me = useCurrentUser()
   const [f, setF] = useState({
     name: '',
@@ -41,7 +43,7 @@ function LeadForm({ onClose }: { onClose: () => void }) {
         name: f.name.trim(),
         phone: f.phone.trim(),
         whatsapp: f.whatsapp.trim() || undefined,
-        scopeDetails: pruneScopeDetails(f.scopes, f.scopeDetails),
+        scopeDetails: pruneScopeDetails(f.scopes, f.scopeDetails, scopeDefs),
         status: 'new',
       },
       note.trim() || undefined,
@@ -126,6 +128,7 @@ function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void }) {
   const convertLead = useStore((s) => s.convertLead)
   const clients = useStore((s) => s.clients)
   const { emp } = useLookup()
+  const scopes = useScopes()
   const navigate = useNavigate()
   const [text, setText] = useState('')
   const existing = clients.find((c) => c.name.toLowerCase().startsWith(lead.name.toLowerCase()))
@@ -193,7 +196,7 @@ function LeadDrawer({ lead, onClose }: { lead: Lead; onClose: () => void }) {
               {lead.scopes.length ? (
                 lead.scopes.map((s) => (
                   <Badge key={s} tone="blue">
-                    {SCOPE_LABEL[s]}
+                    {scopes.label(s)}
                     {lead.scopeDetails?.[s] && <span className="font-normal"> · {lead.scopeDetails[s]}</span>}
                   </Badge>
                 ))
@@ -364,13 +367,151 @@ function Board({ leads, onOpen }: { leads: Lead[]; onOpen: (id: string) => void 
   )
 }
 
+/* ---------- Sorting & filters ---------- */
+
+const lastActivity = (l: Lead) => l.remarks.at(-1)?.at ?? l.createdAt
+const byName = (a: Lead, b: Lead) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' })
+
+const SORTS = {
+  // Open leads by the date to call them, those without a date after, closed ones last.
+  followup: {
+    label: 'Next follow-up first',
+    cmp: (a: Lead, b: Lead) => {
+      const rank = (l: Lead) => (isOpen(l) ? (l.nextFollowUp ? 0 : 1) : 2)
+      return rank(a) - rank(b) || (a.nextFollowUp ?? '').localeCompare(b.nextFollowUp ?? '') || b.createdAt.localeCompare(a.createdAt)
+    },
+  },
+  newest: { label: 'Newest enquiry first', cmp: (a: Lead, b: Lead) => b.createdAt.localeCompare(a.createdAt) || byName(a, b) },
+  oldest: { label: 'Oldest enquiry first', cmp: (a: Lead, b: Lead) => a.createdAt.localeCompare(b.createdAt) || byName(a, b) },
+  activity: { label: 'Latest remark first', cmp: (a: Lead, b: Lead) => lastActivity(b).localeCompare(lastActivity(a)) || byName(a, b) },
+  name: { label: 'Name A–Z', cmp: byName },
+} satisfies Record<string, { label: string; cmp: (a: Lead, b: Lead) => number }>
+
+type SortKey = keyof typeof SORTS
+const isSort = (v: unknown): v is SortKey => typeof v === 'string' && v in SORTS
+
+type FollowUp = 'due' | 'week' | 'none'
+
+const FOLLOW_UPS: Array<{ value: FollowUp; label: string; test: (l: Lead) => boolean }> = [
+  // Due today or already missed.
+  { value: 'due', label: 'Follow-up due', test: (l) => isOpen(l) && !!l.nextFollowUp && daysUntil(l.nextFollowUp) <= 0 },
+  // In the next seven days.
+  { value: 'week', label: 'Follow-up this week', test: (l) => isOpen(l) && !!l.nextFollowUp && daysUntil(l.nextFollowUp) >= 0 && daysUntil(l.nextFollowUp) <= 7 },
+  // Still open, but nobody has set a date to call.
+  { value: 'none', label: 'No follow-up date', test: (l) => isOpen(l) && !l.nextFollowUp },
+]
+
+const EMPTY_FILTERS = { q: '', status: '' as LeadStatus | '', source: '', category: '' as ClientCategory | '', scope: '' as ScopeKey | '', owner: '', followUp: '' as FollowUp | '' }
+type Filters = typeof EMPTY_FILTERS
+
+function FilterBar({ f, set, board, sort, onSort, shown, total, onClear }: { f: Filters; set: (patch: Partial<Filters>) => void; board: boolean; sort: SortKey; onSort: (s: SortKey) => void; shown: number; total: number; onClear: () => void }) {
+  const employees = useStore((s) => s.employees)
+  const scopes = useScopes()
+  const dirty = Object.entries(f).some(([k, v]) => v && !(board && k === 'status'))
+  const small = 'max-sm:min-w-0 max-sm:flex-1 max-sm:basis-[40%]'
+  return (
+    <Card className="mb-4">
+      <div className="flex flex-wrap items-center gap-2 p-3">
+        <div className="relative min-w-52 flex-1 max-sm:basis-full">
+          <Search size={14} className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-ink-400" />
+          <Input small value={f.q} onChange={(e) => set({ q: e.target.value })} placeholder="Name, contact, phone, place, remark…" aria-label="Search leads" className="pl-8" />
+        </div>
+        {/* On the board the columns already split by status. */}
+        {!board && (
+          <Select small fit value={f.status} onChange={(e) => set({ status: e.target.value as LeadStatus | '' })} aria-label="Status" className={small}>
+            <option value="">Any status</option>
+            {LEAD_STATUS_ORDER.map((st) => (
+              <option key={st} value={st}>
+                {LEAD_STATUS[st].label}
+              </option>
+            ))}
+          </Select>
+        )}
+        <Select small fit value={f.followUp} onChange={(e) => set({ followUp: e.target.value as FollowUp | '' })} aria-label="Follow-up" className={small}>
+          <option value="">Any follow-up</option>
+          {FOLLOW_UPS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
+        <Select small fit value={f.scope} onChange={(e) => set({ scope: e.target.value })} aria-label="Enquired about" className={small}>
+          <option value="">Any scope</option>
+          {scopes.list.map((sc) => (
+            <option key={sc.key} value={sc.key}>
+              {sc.label}
+            </option>
+          ))}
+        </Select>
+        <Select small fit value={f.source} onChange={(e) => set({ source: e.target.value })} aria-label="How they reached us" className={small}>
+          <option value="">Any source</option>
+          {LEAD_SOURCES.map((src) => (
+            <option key={src}>{src}</option>
+          ))}
+        </Select>
+        <Select small fit value={f.category} onChange={(e) => set({ category: e.target.value as ClientCategory | '' })} aria-label="Category" className={small}>
+          <option value="">All categories</option>
+          {CATEGORIES.map((c) => (
+            <option key={c}>{c}</option>
+          ))}
+        </Select>
+        <Select small fit value={f.owner} onChange={(e) => set({ owner: e.target.value })} aria-label="Handled by" className={small}>
+          <option value="">Handled by anyone</option>
+          {employees.map((e) => (
+            <option key={e.id} value={e.id}>
+              {e.name}
+            </option>
+          ))}
+        </Select>
+        <Select small fit value={sort} onChange={(e) => onSort(e.target.value as SortKey)} aria-label="Sort by" className={small}>
+          {(Object.keys(SORTS) as SortKey[]).map((k) => (
+            <option key={k} value={k}>
+              Sort: {SORTS[k].label}
+            </option>
+          ))}
+        </Select>
+      </div>
+      {dirty && (
+        <p className="flex flex-wrap items-center gap-x-3 border-t border-ink-100 px-4 py-2 text-xs text-ink-500">
+          <span className="tnum font-semibold text-ink-600">
+            Showing {shown} of {total}
+          </span>
+          <button type="button" onClick={onClear} className="font-semibold text-brand-700 hover:underline">
+            Clear filters
+          </button>
+        </p>
+      )}
+    </Card>
+  )
+}
+
 export default function Leads() {
   const leads = useStore((s) => s.leads)
   const { emp } = useLookup()
   const [params, setParams] = useSearchParams()
   const [view, setView] = useState<'board' | 'list'>('board')
+  const [filters, setFilters] = useState(EMPTY_FILTERS)
+  const [sort, setSort] = useStoredState<SortKey>('fsg-leads-sort', 'followup', isSort)
   const openId = params.get('open')
   const open = leads.find((l) => l.id === openId)
+
+  const shown = useMemo(() => {
+    const f = filters
+    const term = f.q.trim().toLowerCase()
+    const followUp = FOLLOW_UPS.find((o) => o.value === f.followUp)
+    return leads
+      .filter(
+        (l) =>
+          (view === 'board' || !f.status || l.status === f.status) &&
+          (!f.source || l.source === f.source) &&
+          (!f.category || l.category === f.category) &&
+          (!f.scope || l.scopes.includes(f.scope)) &&
+          (!f.owner || l.ownerId === f.owner) &&
+          (!followUp || followUp.test(l)) &&
+          (!term || [l.name, l.contact, l.phone, l.whatsapp, l.place, ...l.remarks.map((r) => r.text)].some((v) => v?.toLowerCase().includes(term))),
+      )
+      .sort(SORTS[sort].cmp)
+  }, [leads, filters, sort, view])
 
   const stats = useMemo(() => {
     const won = leads.filter((l) => l.status === 'won').length
@@ -409,12 +550,29 @@ export default function Leads() {
         }
       />
 
+      {leads.length > 0 && (
+        <FilterBar
+          f={filters}
+          set={(patch) => setFilters((f) => ({ ...f, ...patch }))}
+          board={view === 'board'}
+          sort={sort}
+          onSort={setSort}
+          shown={shown.length}
+          total={leads.length}
+          onClear={() => setFilters(EMPTY_FILTERS)}
+        />
+      )}
+
       {leads.length === 0 ? (
         <Card>
           <Empty icon={<Target size={20} />} title="No enquiries yet" hint="Record the first one to start the pipeline." />
         </Card>
+      ) : shown.length === 0 ? (
+        <Card>
+          <Empty icon={<SearchX size={20} />} title="No leads match these filters" hint="Try a different search, or clear the filters." action={<Button onClick={() => setFilters(EMPTY_FILTERS)}>Clear filters</Button>} />
+        </Card>
       ) : view === 'board' ? (
-        <Board leads={leads} onOpen={(id) => setParams({ open: id })} />
+        <Board leads={shown} onOpen={(id) => setParams({ open: id })} />
       ) : (
         <Card>
           <div className="@container overflow-x-auto">
@@ -430,7 +588,7 @@ export default function Leads() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink-100">
-                {leads.map((l) => (
+                {shown.map((l) => (
                   <tr key={l.id} onClick={() => setParams({ open: l.id })} className="cursor-pointer hover:bg-brand-50/40">
                     <Td>
                       <p className="font-semibold text-ink-900">{l.name}</p>

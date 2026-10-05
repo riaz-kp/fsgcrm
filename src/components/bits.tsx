@@ -1,7 +1,7 @@
 import { MessageCircle, Phone, Repeat } from 'lucide-react'
 import type { MouseEvent, ReactNode } from 'react'
 import { cn, daysUntil, fmtDate, relDue, telHref, whatsappHref } from '../lib/format'
-import { SCOPE_LABEL, SCOPE_SHORT } from '../lib/meta'
+import { useScopes } from '../store'
 import type { Recurrence, ScopeKey } from '../types'
 import { Badge } from './ui'
 
@@ -18,18 +18,19 @@ export function Due({ date, done, compact }: { date: string; done?: boolean; com
 }
 
 export function ScopeChips({ scopes, max = 3 }: { scopes: ScopeKey[]; max?: number }) {
+  const { label, short } = useScopes()
   const shown = scopes.slice(0, max)
   const rest = scopes.slice(max)
   return (
     <span className="flex flex-wrap gap-1">
       {shown.map((s) => (
         <Badge key={s} tone="neutral">
-          <span title={SCOPE_LABEL[s]}>{SCOPE_SHORT[s]}</span>
+          <span title={label(s)}>{short(s)}</span>
         </Badge>
       ))}
       {rest.length > 0 && (
         <Badge tone="neutral">
-          <span title={rest.map((s) => SCOPE_LABEL[s]).join(', ')}>+{rest.length}</span>
+          <span title={rest.map(label).join(', ')}>+{rest.length}</span>
         </Badge>
       )}
     </span>

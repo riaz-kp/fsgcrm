@@ -6,7 +6,7 @@ import { Avatar, Badge, Button, Card, CardHeader, Empty, Progress, TONE_BAR } fr
 import { statutoryDeadlines } from '../lib/deadlines'
 import { addDays, cn, currentGstPeriod, daysUntil, fmtDate, fmtWeekday, fmtTime, greeting, inr, longToday, periodLabel, todayISO } from '../lib/format'
 import { DEPARTMENTS, LEAD_STATUS, LEAD_STATUS_ORDER, PRIORITIES, TASK_STATUS, TASK_STATUS_ORDER } from '../lib/meta'
-import { isHead, useCurrentUser, useLookup, useStore, useVisibleTasks } from '../store'
+import { can, useCurrentUser, useLookup, useStore, useVisibleTasks } from '../store'
 import type { Task } from '../types'
 
 function GstProgress() {
@@ -63,7 +63,7 @@ function GstProgress() {
 
 function WorkQueue() {
   const me = useCurrentUser()
-  const head = isHead(me)
+  const head = can(me, 'assign_tasks')
   const tasks = useVisibleTasks()
   const { emp, client } = useLookup()
 
@@ -164,7 +164,7 @@ function TodayStrip() {
 /** What is due today (or already late): one box per person for heads, your own otherwise. */
 function TodayTasks() {
   const me = useCurrentUser()
-  const head = isHead(me)
+  const head = can(me, 'assign_tasks')
   const tasks = useVisibleTasks()
   const employees = useStore((s) => s.employees)
   const { client } = useLookup()
@@ -397,7 +397,8 @@ function LeadPipeline() {
 
 export default function Dashboard() {
   const me = useCurrentUser()
-  const head = isHead(me)
+  // The manager's dashboard goes with assigning work; the fee figure on it, with seeing fees.
+  const head = can(me, 'assign_tasks')
   const clients = useStore((s) => s.clients)
   const tasks = useVisibleTasks()
   const leads = useStore((s) => s.leads)
@@ -454,7 +455,7 @@ export default function Dashboard() {
           icon={<ListTodo size={17} />}
         />
         <StatCard label="Open leads" value={openLeads} tone="amber" sub={`${leads.filter((l) => l.status === 'won').length} won so far`} icon={<Target size={17} />} />
-        {head ? (
+        {head && can(me, 'view_fees') ? (
           <StatCard label="Fees outstanding" value={inr(outstanding)} tone="green" sub="Receivable across all clients" icon={<IndianRupee size={17} />} />
         ) : (
           <StatCard

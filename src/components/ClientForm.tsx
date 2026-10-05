@@ -1,8 +1,8 @@
 import { Check } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '../lib/format'
-import { CATEGORIES, SCOPE_GROUPS, SCOPES, pruneScopeDetails } from '../lib/meta'
-import { useStore } from '../store'
+import { CATEGORIES, pruneScopeDetails } from '../lib/meta'
+import { useScopes, useStore } from '../store'
 import type { Client, ClientCategory, ScopeDetails, ScopeKey } from '../types'
 import { Button, Field, Input, Modal, Select } from './ui'
 
@@ -17,14 +17,15 @@ export function ScopePicker({
   details: ScopeDetails
   onDetails: (v: ScopeDetails) => void
 }) {
+  const scopes = useScopes()
   const toggle = (k: ScopeKey) => onChange(value.includes(k) ? value.filter((x) => x !== k) : [...value, k])
   return (
     <div className="space-y-3">
-      {SCOPE_GROUPS.map((g) => (
+      {scopes.groups.map((g) => (
         <div key={g}>
           <p className="mb-1.5 text-[11px] font-bold tracking-wider text-ink-400 uppercase">{g}</p>
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-            {SCOPES.filter((s) => s.group === g).map((s) => {
+            {scopes.list.filter((s) => s.group === g).map((s) => {
               const on = value.includes(s.key)
               return (
                 <button
@@ -48,7 +49,7 @@ export function ScopePicker({
           </div>
         </div>
       ))}
-      {SCOPES.filter((s) => s.detailHint && value.includes(s.key)).map((s) => (
+      {scopes.list.filter((s) => s.detailHint && value.includes(s.key)).map((s) => (
         <Field key={s.key} label={`${s.label} · details`}>
           <Input value={details[s.key] ?? ''} onChange={(e) => onDetails({ ...details, [s.key]: e.target.value })} placeholder={s.detailHint} />
         </Field>
@@ -60,6 +61,7 @@ export function ScopePicker({
 export default function ClientForm({ client, onClose, onSaved }: { client?: Client; onClose: () => void; onSaved?: (id: string) => void }) {
   const addClient = useStore((s) => s.addClient)
   const updateClient = useStore((s) => s.updateClient)
+  const scopeDefs = useStore((s) => s.scopes)
   const [f, setF] = useState({
     name: client?.name ?? '',
     category: client?.category ?? ('Proprietorship' as ClientCategory),
@@ -96,7 +98,7 @@ export default function ClientForm({ client, onClose, onSaved }: { client?: Clie
       tan: f.tan.trim() || undefined,
       gstFrequency: hasGst ? f.gstFrequency : undefined,
       scopes: f.scopes,
-      scopeDetails: pruneScopeDetails(f.scopes, f.scopeDetails),
+      scopeDetails: pruneScopeDetails(f.scopes, f.scopeDetails, scopeDefs),
     }
     let id = client?.id
     if (id) updateClient(id, data)

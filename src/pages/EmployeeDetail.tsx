@@ -10,7 +10,7 @@ import { timing } from '../lib/attendance'
 import { ageFrom, currentGstPeriod, daysUntil, fmtDate, periodLabel, tenure, todayISO } from '../lib/format'
 import { workEntries } from '../lib/history'
 import { ATTENDANCE, ROLES, TASK_STATUS } from '../lib/meta'
-import { isHead, useCurrentUser, useLookup, useStore, useVisibleTasks } from '../store'
+import { can, useCan, useCurrentUser, useLookup, useStore, useVisibleTasks } from '../store'
 import type { Employee } from '../types'
 
 type Tab = 'profile' | 'work' | 'attendance'
@@ -93,7 +93,7 @@ function Profile({ emp, onEdit }: { emp: Employee; onEdit?: () => void }) {
   const f = emp.family ?? {}
   const personal = [emp.dob, emp.address, emp.phone, emp.email, emp.bloodGroup, emp.qualification, emp.joined]
   const family = [f.fatherName, f.fatherOccupation, f.motherName, f.motherOccupation, f.fatherPhone, f.siblings]
-  // Only heads can change these, so anyone else is told who to ask.
+  // Only those who edit the team can change these, so anyone else is told who to ask.
   const added = (list: Array<string | undefined>) => `${list.filter(Boolean).length} of ${list.length} added${onEdit ? '' : ' · ask a head to update them'}`
   const edit = onEdit && (
     <Button size="sm" icon={<Pencil size={14} />} onClick={onEdit}>
@@ -226,7 +226,7 @@ function Work({ emp }: { emp: Employee }) {
             title="Open tasks"
             hint={open.length ? 'Soonest due first' : undefined}
             action={
-              <Link to={isHead(me) ? `/tasks?assignee=${emp.id}` : '/tasks'} className="inline-flex items-center gap-1 text-[13px] font-semibold text-brand-700 hover:underline">
+              <Link to={can(me, 'assign_tasks') ? `/tasks?assignee=${emp.id}` : '/tasks'} className="inline-flex items-center gap-1 text-[13px] font-semibold text-brand-700 hover:underline">
                 All tasks <ArrowRight size={14} />
               </Link>
             }
@@ -291,7 +291,7 @@ export default function EmployeeDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const me = useCurrentUser()
-  const head = isHead(me)
+  const allowed = useCan()
   const employees = useStore((s) => s.employees)
   const openTasks = useStore((s) => s.tasks.filter((t) => t.assigneeId === id && t.status !== 'completed').length)
   const [tab, setTab] = useState<Tab>('profile')
@@ -305,8 +305,9 @@ export default function EmployeeDetail() {
       </Card>
     )
   }
-  // Personal details, work and attendance are for the heads and for the person themself.
-  const full = head || emp.id === me.id
+  // Personal details, work and attendance are for those allowed to see colleagues' details, and for the person themself.
+  const full = allowed('view_team') || emp.id === me.id
+  const canEdit = allowed('edit_team')
   const manager = employees.find((e) => e.id === emp.reportsTo)
 
   return (
@@ -325,18 +326,22 @@ export default function EmployeeDetail() {
             <span>{[emp.title !== ROLES[emp.role].label && emp.title, manager ? `reports to ${manager.name}` : 'leads the firm'].filter(Boolean).join(' · ')}</span>
           </p>
         </div>
-        {head && (
+        {(allowed('view_team') || canEdit) && (
           <div className="flex flex-wrap items-center gap-3">
-            <Select fit value={emp.id} onChange={(e) => navigate(`/team/${e.target.value}`)} aria-label="Show another person">
-              {employees.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.name}
-                </option>
-              ))}
-            </Select>
-            <Button icon={<Pencil size={15} />} onClick={() => setEditing(true)}>
-              Edit
-            </Button>
+            {allowed('view_team') && (
+              <Select fit value={emp.id} onChange={(e) => navigate(`/team/${e.target.value}`)} aria-label="Show another person">
+                {employees.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.name}
+                  </option>
+                ))}
+              </Select>
+            )}
+            {canEdit && (
+              <Button icon={<Pencil size={15} />} onClick={() => setEditing(true)}>
+                Edit
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -354,21 +359,21 @@ export default function EmployeeDetail() {
               ]}
             />
           </div>
-          {tab === 'profile' && <Profile emp={emp} onEdit={head ? () => setEditing(true) : undefined} />}
+          {tab === 'profile' && <Profile emp={emp} onEdit={canEdit ? () => setEditing(true) : undefined} />}
           {tab === 'work' && <Work emp={emp} />}
-          {tab === 'attendance' && <AttendancePanel emp={emp} canEdit={head} />}
+          {tab === 'attendance' && <AttendancePanel emp={emp} canEdit={allowed('manage_attendance')} />}
         </>
       ) : (
         <div className="max-w-xl space-y-3">
           <AtTheFirm emp={emp} contact />
           <p className="flex items-start gap-2 px-1 text-[13px] text-ink-500">
             <Lock size={14} className="mt-0.5 shrink-0" />
-            Personal and family details, work and attendance are shown to the heads and to {emp.name} only.
+            Personal and family details, work and attendance are shown to {emp.name} and to those given access in Settings.
           </p>
         </div>
       )}
 
-      {editing && <EmployeeForm employee={emp} onClose={() => setEditing(false)} />}
+      {editing && canEdit && <EmployeeForm employee={emp} onClose={() => setEditing(false)} />}
     </>
   )
 }

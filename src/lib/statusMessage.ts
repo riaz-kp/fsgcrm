@@ -1,6 +1,6 @@
 import type { AuditFiling, Client, GstFiling, GstStatus, ItFiling, ServiceJob, SimpleStatus, TdsFiling, TdsPayment } from '../types'
 import { currentGstPeriod, fmtDate, inr, periodLabel, todayISO } from './format'
-import { FIRM_NAME } from './meta'
+import { FIRM_NAME, fillTemplate } from './meta'
 
 /** One line of a work-status message, as the client will read it. */
 export interface StatusLine {
@@ -39,8 +39,8 @@ const PAYMENT_WORDS: Record<TdsPayment, string> = { paid: 'paid', due: 'not paid
 
 const closed = (s: SimpleStatus) => s === 'filed' || s === 'completed'
 
-/** Where each piece of this client's work stands today, one line each. */
-export function statusLines(client: Client, src: Sources): StatusLine[] {
+/** Where each piece of this client's work stands today, one line each. `fees` offers the balance as a line too. */
+export function statusLines(client: Client, src: Sources, fees = true): StatusLine[] {
   const out: StatusLine[] = []
   const period = currentGstPeriod()
   const thisMonth = todayISO().slice(0, 7)
@@ -83,25 +83,24 @@ export function statusLines(client: Client, src: Sources): StatusLine[] {
 
   // Asking for money is a choice, so the balance is offered but left unticked.
   const due = client.transactions.reduce((sum, x) => sum + (x.kind === 'charge' ? x.amount : -x.amount), 0)
-  if (due > 0) out.push({ key: 'fees', text: `Fee balance as of today: ${inr(due)}`, on: false })
+  if (fees && due > 0) out.push({ key: 'fees', text: `Fee balance as of today: ${inr(due)}`, on: false })
 
   return out
 }
 
-/** The message the lines add up to. It is a draft: whoever sends it reads and adjusts it first. */
-export function statusMessage(client: Client, lines: StatusLine[], from: string): string {
-  const person = client.category === 'Individual'
-  return [
-    person ? `Dear ${client.name},` : 'Dear Sir/Madam,',
-    '',
-    `${person ? 'Status of your work with us' : `Status of the work for ${client.name}`} as on ${fmtDate(todayISO(), true)}:`,
-    '',
-    ...lines.map((l) => `• ${l.text}`),
-    '',
-    'Please let us know if you need anything further.',
-    '',
-    'Regards,',
-    from,
-    FIRM_NAME,
-  ].join('\n')
+/** How a message to a client opens: by name for a person, Sir/Madam for a business. */
+export function greetingFor(client?: Pick<Client, 'name' | 'category'>): string {
+  return client?.category === 'Individual' ? `Dear ${client.name}` : 'Dear Sir/Madam'
+}
+
+/** The message the lines add up to, in the firm's template. It is a draft: whoever sends it reads and adjusts it first. */
+export function statusMessage(template: string, client: Client, lines: StatusLine[], from: string): string {
+  return fillTemplate(template, {
+    greeting: greetingFor(client),
+    client: client.name,
+    date: fmtDate(todayISO(), true),
+    status: lines.map((l) => `• ${l.text}`).join('\n'),
+    staff: from,
+    firm: FIRM_NAME,
+  })
 }

@@ -5,7 +5,7 @@ import { Due, RecurringTag } from '../components/bits'
 import { Avatar, Badge, Button, Card, Drawer, Empty, Field, IconButton, Input, Modal, PageHeader, Person, Progress, Segmented, Select, StatusSelect, Td, Textarea, Th, TONE_BAR } from '../components/ui'
 import { addDays, cn, daysUntil, fmtDate, todayISO } from '../lib/format'
 import { DEPARTMENTS, PRIORITIES, PRIORITY_ORDER, TASK_STATUS, TASK_STATUS_ORDER, options } from '../lib/meta'
-import { isHead, useCurrentUser, useLookup, useStore, useVisibleTasks } from '../store'
+import { can, useCurrentUser, useLookup, useStore, useVisibleTasks } from '../store'
 import type { Department, Priority, Recurrence, Task, TaskStatus } from '../types'
 
 function progressTone(t: Task) {
@@ -127,7 +127,8 @@ function TaskForm({ onClose }: { onClose: () => void }) {
 
 function TaskDrawer({ task, onClose }: { task: Task; onClose: () => void }) {
   const me = useCurrentUser()
-  const head = isHead(me)
+  // Whoever may assign work (the heads, unless Settings says otherwise) also approves it.
+  const head = can(me, 'assign_tasks')
   const mine = task.assigneeId === me.id
   const canWork = (mine || head) && task.status !== 'completed'
   const updateTask = useStore((s) => s.updateTask)
@@ -341,7 +342,7 @@ type StatusTab = 'open' | TaskStatus
 
 export default function Tasks() {
   const me = useCurrentUser()
-  const head = isHead(me)
+  const head = can(me, 'assign_tasks')
   const tasks = useVisibleTasks()
   const employees = useStore((s) => s.employees)
   const clients = useStore((s) => s.clients)

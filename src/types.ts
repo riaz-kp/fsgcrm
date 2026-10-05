@@ -31,7 +31,21 @@ export interface Employee {
   family?: FamilyDetails
   /** Small data-URL image, resized in the browser before saving. */
   photo?: string
+  /** What this person may do. Left unset, it follows their role (see ROLE_PERMISSIONS). */
+  permissions?: Permission[]
 }
+
+/** Things the firm can allow or withhold person by person, in Settings. */
+export type Permission =
+  | 'assign_tasks'
+  | 'edit_clients'
+  | 'view_logins'
+  | 'view_fees'
+  | 'consultations'
+  | 'manage_attendance'
+  | 'view_team'
+  | 'edit_team'
+  | 'settings'
 
 export type ClientCategory =
   | 'Company'
@@ -41,7 +55,8 @@ export type ClientCategory =
   | 'Partnership'
   | 'Trust'
 
-export type ScopeKey =
+/** The scopes the app ships with. Deadlines and trackers are worked out from these keys, so they cannot be deleted. */
+export type BuiltinScope =
   | 'gst_registration'
   | 'gst_filing'
   | 'annual_return'
@@ -59,6 +74,24 @@ export type ScopeKey =
   | 'tan_application'
   | 'pan_application'
   | 'other'
+
+/** A built-in key, or one made in Settings (those start with `x-`). */
+export type ScopeKey = BuiltinScope | (string & {})
+
+export type TrackerTab = 'gst' | 'tds' | 'it' | 'audit' | 'services'
+
+export interface ScopeDef {
+  key: ScopeKey
+  label: string
+  /** For the small chips on lists. */
+  short: string
+  group: string
+  /** The filing tracker this scope's work is followed in, if it has one. */
+  tracker?: TrackerTab
+  /** Set for scopes that need a line saying what exactly is meant. */
+  detailHint?: string
+  builtin?: boolean
+}
 
 export type ScopeDetails = Partial<Record<ScopeKey, string>>
 
@@ -192,15 +225,16 @@ export interface Task {
 
 export type GstStatus = 'to_begin' | 'data_pending' | 'in_progress' | 'filed' | 'nil' | 'na'
 
-/** How far the client's data has travelled: bills -> Tally -> Excel -> JSON for the offline tool. */
-export type GstStage = 'awaiting' | 'bills' | 'tally' | 'excel' | 'json'
+/** What the client sent for the month. Bills go into Tally, Tally out to Excel, Excel to JSON for the offline tool. */
+export type GstDataType = 'bills' | 'tally' | 'excel' | 'json'
 
 export interface GstFiling {
   id: string
   clientId: string
   period: string // YYYY-MM
-  source: 'bills' | 'tally' | 'excel'
-  stage: GstStage
+  dataType?: GstDataType
+  /** The day the client's data for the period came in. */
+  dataIn?: string
   gstr1: GstStatus
   gstr3b: GstStatus
   assigneeId: string
@@ -221,6 +255,8 @@ export interface TdsFiling {
   /** Month the tax was deducted in (YYYY-MM) -> whether it has been deposited. */
   payments: Record<string, TdsPayment>
   quarters: [SimpleStatus, SimpleStatus, SimpleStatus, SimpleStatus]
+  /** Month (YYYY-MM) -> the day that month's deduction details came in. */
+  dataIn: Record<string, string>
   assigneeId: string
   /** Billed for the year's TDS work so far, and what has come in against it. */
   fee: number
@@ -234,7 +270,7 @@ export interface ItFiling {
   ay: string
   kind: 'non_audit' | 'audit'
   status: SimpleStatus
-  dataReceived: boolean
+  dataIn?: string
   assigneeId: string
   fee: number
   received: number
@@ -250,8 +286,7 @@ export interface AuditFiling {
   kind: 'Tax audit' | 'Statutory audit' | 'Internal audit' | 'Nil audit'
   status: SimpleStatus
   reconciliation: boolean
-  /** Tracked for internal audits only. */
-  dataReceived: boolean
+  dataIn?: string
   assigneeId: string
   dueDate: string
   fee: number
@@ -284,6 +319,7 @@ export interface ServiceJob {
   details?: string
   status: SimpleStatus
   committedDate: string
+  dataIn?: string
   assigneeId: string
   fee: number
   received: number
@@ -306,7 +342,40 @@ export interface Consultation {
   mode: ConsultMode
   status: 'scheduled' | 'done' | 'cancelled'
   notes: string
+  /** Earlier slots, oldest first, each with the day it was moved and why. */
+  postponed?: Postponement[]
 }
+
+export interface Postponement {
+  date: string
+  time: string
+  on: string
+  reason?: string
+}
+
+/* ---------- Reminders & message templates ---------- */
+
+export type ReminderRepeat = 'none' | 'monthly' | 'yearly'
+
+/** A date someone wants to be reminded of, on top of the ones worked out from scopes, tasks and leads. */
+export interface Reminder {
+  id: string
+  title: string
+  note?: string
+  /** The first (or only) date. A monthly reminder repeats on this day of the month, a yearly one on this day and month. */
+  date: string
+  repeat: ReminderRepeat
+  /** How many days ahead it starts showing under the bell. */
+  notifyDays: number
+  /** Whose reminder it is; unset means everyone's. */
+  forId?: string
+  clientId?: string
+  createdBy: string
+  /** Dates (one per occurrence) that have been ticked off. */
+  done: string[]
+}
+
+export type TemplateKey = 'status' | 'requirements'
 
 export type AttendanceMark = 'P' | 'H' | 'L' | 'A'
 

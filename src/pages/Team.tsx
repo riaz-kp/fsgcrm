@@ -5,7 +5,7 @@ import EmployeeForm from '../components/EmployeeForm'
 import { Avatar, Badge, Button, Card, IconButton, PageHeader, Progress } from '../components/ui'
 import { cn, daysToBirthday, daysUntil, fmtDate, parseISO, telHref, tenure } from '../lib/format'
 import { ROLES } from '../lib/meta'
-import { isHead, useCurrentUser, useStore } from '../store'
+import { isHead, useCan, useCurrentUser, useStore } from '../store'
 import type { Employee } from '../types'
 
 function birthdayLabel(dob: string): string {
@@ -118,7 +118,7 @@ function MemberCard({ e, stats, manager, max, onEdit }: { e: Employee; stats?: S
 
 export default function Team() {
   const me = useCurrentUser()
-  const head = isHead(me)
+  const can = useCan()
   const employees = useStore((s) => s.employees)
   const tasks = useStore((s) => s.tasks)
   const [adding, setAdding] = useState(false)
@@ -162,7 +162,7 @@ export default function Team() {
         title="Team"
         subtitle={`${employees.length} people · ${employees.filter(isHead).length} heads · open anyone for their details, work and attendance`}
         actions={
-          head && (
+          can('edit_team') && (
             <Button variant="primary" icon={<Plus size={16} />} onClick={() => setAdding(true)}>
               Add member
             </Button>
@@ -197,11 +197,11 @@ export default function Team() {
               <MemberCard
                 key={e.id}
                 e={e}
-                // Workload is for the heads; everyone else sees their own.
-                stats={head || e.id === me.id ? stats.get(e.id) : undefined}
+                // Workload goes with seeing colleagues' details; everyone else sees their own.
+                stats={can('view_team') || e.id === me.id ? stats.get(e.id) : undefined}
                 manager={employees.find((x) => x.id === e.reportsTo)}
                 max={max}
-                onEdit={head ? () => setEditing(e) : undefined}
+                onEdit={can('edit_team') ? () => setEditing(e) : undefined}
               />
             ))}
           </div>

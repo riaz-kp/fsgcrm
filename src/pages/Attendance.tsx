@@ -6,7 +6,7 @@ import { Avatar, Button, Card, CardHeader, Empty, PageHeader, Select } from '../
 import { MARK_CELL, attendanceTotals, monthDays, timing } from '../lib/attendance'
 import { cn, fmtDate, nowHHMM, todayISO } from '../lib/format'
 import { ATTENDANCE, ATTENDANCE_ORDER } from '../lib/meta'
-import { isHead, useCurrentUser, useStore } from '../store'
+import { can, useCurrentUser, useStore } from '../store'
 import type { AttendanceMark } from '../types'
 
 /** Unmarked -> Present -> Half day -> Leave -> Absent -> unmarked */
@@ -19,7 +19,7 @@ function next(mark?: AttendanceMark): AttendanceMark | undefined {
 
 export default function AttendancePage() {
   const me = useCurrentUser()
-  const head = isHead(me)
+  const head = can(me, 'manage_attendance')
   const employees = useStore((s) => s.employees)
   const attendance = useStore((s) => s.attendance)
   const setAttendance = useStore((s) => s.setAttendance)
@@ -27,7 +27,7 @@ export default function AttendancePage() {
   const today = todayISO()
   const [month, setMonth] = useState(today.slice(0, 7))
 
-  // Heads keep the register for everyone; others see their own row.
+  // Whoever keeps attendance (the heads, by default) has the register for everyone; others see their own row.
   const people = head ? employees : employees.filter((e) => e.id === me.id)
   const days = useMemo(() => monthDays(month), [month])
   const unmarkedToday = people.filter((e) => !attendance[e.id]?.[today])
@@ -205,7 +205,7 @@ export function AttendanceDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const me = useCurrentUser()
-  const head = isHead(me)
+  const head = can(me, 'manage_attendance')
   const employees = useStore((s) => s.employees)
   const emp = employees.find((e) => e.id === id)
 
@@ -216,7 +216,7 @@ export function AttendanceDetail() {
       </Card>
     )
   }
-  // Only heads look at other people's attendance.
+  // Only those who keep attendance look at other people's.
   if (!head && emp.id !== me.id) return <Navigate to={`/attendance/${me.id}`} replace />
 
   return (
