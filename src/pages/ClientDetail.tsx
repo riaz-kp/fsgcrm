@@ -25,8 +25,9 @@ import {
   Trash2,
   Undo2,
   Upload,
+  X,
 } from 'lucide-react'
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Detail, Due, MailLink, PhoneLink, WhatsAppLink } from '../components/bits'
 import ClientForm from '../components/ClientForm'
@@ -238,6 +239,8 @@ function Logins({ client }: { client: Client }) {
   const [copied, setCopied] = useState('')
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState<Credential>({ portal: 'gst', username: '', password: '' })
+  // The login being changed in its row, and what it is being changed to.
+  const [editing, setEditing] = useState<Credential>()
   const free = (Object.keys(PORTALS) as Portal[]).filter((p) => !client.credentials.some((c) => c.portal === p))
 
   const copy = (key: string, text: string) => {
@@ -256,6 +259,17 @@ function Logins({ client }: { client: Client }) {
     if (!draft.username.trim() || !draft.password) return
     updateClient(client.id, { credentials: [...client.credentials, { ...draft, username: draft.username.trim() }] })
     setAdding(false)
+  }
+  const saveEdit = () => {
+    if (!editing?.username.trim() || !editing.password) return
+    updateClient(client.id, {
+      credentials: client.credentials.map((c) => (c.portal === editing.portal ? { ...editing, username: editing.username.trim() } : c)),
+    })
+    setEditing(undefined)
+  }
+  const editKeys = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') saveEdit()
+    if (e.key === 'Escape') setEditing(undefined)
   }
 
   return (
@@ -295,9 +309,32 @@ function Logins({ client }: { client: Client }) {
             <tbody className="divide-y divide-ink-100">
               {client.credentials.map((c) => {
                 const visible = shown.has(c.portal)
+                if (editing?.portal === c.portal)
+                  return (
+                    <tr key={c.portal} className="relative bg-brand-50/40">
+                      <Td className="@max-3xl:mr-20">
+                        <p className="font-semibold text-ink-800">{PORTALS[c.portal].label}</p>
+                        <p className="text-xs text-ink-500">{PORTALS[c.portal].hint}</p>
+                      </Td>
+                      <Td label="Username" className="col-span-full">
+                        <Input small value={editing.username} onChange={(e) => setEditing({ ...editing, username: e.target.value })} onKeyDown={editKeys} autoFocus autoComplete="off" aria-label={`${PORTALS[c.portal].label} username`} className="tnum" />
+                      </Td>
+                      <Td label="Password" className="col-span-full">
+                        <Input small value={editing.password} onChange={(e) => setEditing({ ...editing, password: e.target.value })} onKeyDown={editKeys} autoComplete="off" aria-label={`${PORTALS[c.portal].label} password`} className="tnum" />
+                      </Td>
+                      <Td className={cn('text-right whitespace-nowrap', CARD_ACTION)}>
+                        <IconButton label="Save login" onClick={saveEdit} disabled={!editing.username.trim() || !editing.password} className="text-emerald-700 hover:text-emerald-800 disabled:opacity-40">
+                          <Check size={16} />
+                        </IconButton>
+                        <IconButton label="Cancel" onClick={() => setEditing(undefined)}>
+                          <X size={16} />
+                        </IconButton>
+                      </Td>
+                    </tr>
+                  )
                 return (
                   <tr key={c.portal} className="relative">
-                    <Td className="@max-3xl:mr-10">
+                    <Td className="@max-3xl:mr-20">
                       <p className="font-semibold text-ink-800">{PORTALS[c.portal].label}</p>
                       <p className="text-xs text-ink-500">{PORTALS[c.portal].hint}</p>
                     </Td>
@@ -328,11 +365,16 @@ function Logins({ client }: { client: Client }) {
                         </span>
                       )}
                     </Td>
-                    <Td className={cn('text-right', CARD_ACTION)}>
+                    <Td className={cn('text-right whitespace-nowrap', CARD_ACTION)}>
                       {access && (
-                        <IconButton label={`Remove ${PORTALS[c.portal].label} login`} onClick={() => remove(c.portal)} className="hover:text-rose-600">
-                          <Trash2 size={14} />
-                        </IconButton>
+                        <>
+                          <IconButton label={`Edit ${PORTALS[c.portal].label} login`} onClick={() => setEditing(c)}>
+                            <Pencil size={14} />
+                          </IconButton>
+                          <IconButton label={`Remove ${PORTALS[c.portal].label} login`} onClick={() => remove(c.portal)} className="hover:text-rose-600">
+                            <Trash2 size={14} />
+                          </IconButton>
+                        </>
                       )}
                     </Td>
                   </tr>

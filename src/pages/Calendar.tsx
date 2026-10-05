@@ -1,5 +1,5 @@
 import { AlarmClock, CalendarDays, Check, ChevronLeft, ChevronRight, Pencil, Plus, Repeat, Trash2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Badge, Button, Card, CardHeader, Empty, Field, IconButton, Input, Modal, PageHeader, Select, Textarea, TONE_BAR } from '../components/ui'
 import { statutoryDeadlines } from '../lib/deadlines'
@@ -287,9 +287,45 @@ function ReminderForm({ reminder, draft, onClose }: { reminder?: Reminder; draft
 
 /* ---------- Filters ---------- */
 
-const FILTER_LABEL = 'w-14 shrink-0 text-[11px] font-bold tracking-wider text-ink-400 uppercase max-sm:w-full'
 // On a phone each row of chips scrolls sideways rather than stacking down the page.
-const FILTER_ROW = 'scroll-none flex min-w-0 flex-1 gap-1.5 sm:flex-wrap max-sm:-mx-4 max-sm:overflow-x-auto max-sm:px-4'
+const FILTER_ROW = 'scroll-none flex min-w-0 flex-1 items-center gap-1.5 sm:flex-wrap max-sm:-mx-4 max-sm:overflow-x-auto max-sm:px-4'
+
+/** "Check all" and "Uncheck all" for one row of chips; each shows only when it would change something. */
+function CheckAll({ allOn, noneOn, onAll, onNone, className }: { allOn: boolean; noneOn: boolean; onAll: () => void; onNone: () => void; className?: string }) {
+  return (
+    <span className={cn('flex shrink-0 items-center gap-3 text-xs font-semibold text-brand-700', className)}>
+      {!allOn && (
+        <button type="button" onClick={onAll} className="hover:underline">
+          Check all
+        </button>
+      )}
+      {!noneOn && (
+        <button type="button" onClick={onNone} className="hover:underline">
+          Uncheck all
+        </button>
+      )}
+    </span>
+  )
+}
+
+/**
+ * One row of filters: its name, then the chips. "Check all" and "Uncheck all" follow the chips on a wide screen,
+ * and sit beside the name on a phone, where the chips scroll.
+ */
+function FilterRow({ label, all, children, divider }: { label: string; all: Parameters<typeof CheckAll>[0]; children: ReactNode; divider?: boolean }) {
+  return (
+    <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3', divider && 'border-t border-ink-100')}>
+      <div className="flex w-14 shrink-0 items-center justify-between max-sm:w-full">
+        <p className="text-[11px] font-bold tracking-wider text-ink-400 uppercase">{label}</p>
+        <CheckAll {...all} className="sm:hidden" />
+      </div>
+      <div className={FILTER_ROW}>
+        {children}
+        <CheckAll {...all} className="pl-1 max-sm:hidden" />
+      </div>
+    </div>
+  )
+}
 
 function FilterChip({ on, tone, label, count, onClick }: { on: boolean; tone: Tone; label: string; count?: number; onClick: () => void }) {
   return (
@@ -372,7 +408,7 @@ export default function Calendar() {
   return (
     <>
       <PageHeader
-        title="Deadlines"
+        title="Calendar"
         subtitle="Statutory dates worked out from each client's scopes, plus task due dates, follow-ups, dates committed to customers and your own reminders."
         actions={
           <Button variant="primary" icon={<Plus size={16} />} onClick={() => setForm({ draft: { date: selected >= today ? selected : addDays(today, 1) } })}>
@@ -382,28 +418,34 @@ export default function Calendar() {
       />
 
       <Card className="mb-4">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
-          <p className={FILTER_LABEL}>Show</p>
-          <div className={FILTER_ROW}>
-            {kinds.map((k) => (
-              <FilterChip key={k} on={!filters.hiddenKinds.includes(k)} tone={KIND_TONE[k]} label={KIND_LABEL[k]} count={countKind(k)} onClick={() => toggleKind(k)} />
-            ))}
-          </div>
-        </div>
+        <FilterRow
+          label="Show"
+          all={{
+            allOn: kinds.every((k) => !filters.hiddenKinds.includes(k)),
+            noneOn: kinds.every((k) => filters.hiddenKinds.includes(k)),
+            onAll: () => setFilters({ ...filters, hiddenKinds: [] }),
+            onNone: () => setFilters({ ...filters, hiddenKinds: [...KINDS] }),
+          }}
+        >
+          {kinds.map((k) => (
+            <FilterChip key={k} on={!filters.hiddenKinds.includes(k)} tone={KIND_TONE[k]} label={KIND_LABEL[k]} count={countKind(k)} onClick={() => toggleKind(k)} />
+          ))}
+        </FilterRow>
         {depts.length > 0 && (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-ink-100 px-4 py-3">
-            <p className={FILTER_LABEL}>Work</p>
-            <div className={FILTER_ROW}>
-              {depts.map((d) => (
-                <FilterChip key={d} on={!filters.hiddenDepts.includes(d)} tone={DEPARTMENTS[d].tone} label={DEPARTMENTS[d].label} count={countDept(d)} onClick={() => toggleDept(d)} />
-              ))}
-            </div>
-            {filtered && (
-              <button type="button" onClick={() => setFilters(NO_FILTERS)} className="text-xs font-semibold text-brand-700 hover:underline max-sm:w-full max-sm:text-left">
-                Show everything
-              </button>
-            )}
-          </div>
+          <FilterRow
+            label="Work"
+            divider
+            all={{
+              allOn: depts.every((d) => !filters.hiddenDepts.includes(d)),
+              noneOn: depts.every((d) => filters.hiddenDepts.includes(d)),
+              onAll: () => setFilters({ ...filters, hiddenDepts: [] }),
+              onNone: () => setFilters({ ...filters, hiddenDepts: [...DEPTS] }),
+            }}
+          >
+            {depts.map((d) => (
+              <FilterChip key={d} on={!filters.hiddenDepts.includes(d)} tone={DEPARTMENTS[d].tone} label={DEPARTMENTS[d].label} count={countDept(d)} onClick={() => toggleDept(d)} />
+            ))}
+          </FilterRow>
         )}
       </Card>
 

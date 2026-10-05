@@ -238,7 +238,7 @@ function Scopes() {
         </table>
       </div>
       <p className="px-5 py-3 text-xs text-ink-500">
-        Statutory deadlines are worked out from the built-in scopes, so those can be renamed or moved to another group but not deleted. A new scope has no deadlines of its own: add a reminder on the Deadlines page for any date it brings.
+        Statutory deadlines are worked out from the built-in scopes, so those can be renamed or moved to another group but not deleted. A new scope has no deadlines of its own: add a reminder on the Calendar page for any date it brings.
       </p>
       {editing && <ScopeForm scope={editing === 'new' ? undefined : editing} onClose={() => setEditing(undefined)} />}
       {deleting && <DeleteScope scope={deleting} onClose={() => setDeleting(undefined)} />}

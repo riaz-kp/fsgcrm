@@ -479,7 +479,7 @@ export default function Layout() {
         <nav className="scroll-thin flex-1 space-y-0.5 overflow-y-auto px-3 py-2 rail:px-2">
           <NavItem to="/" icon={<LayoutDashboard size={17} />} label="Dashboard" onNavigate={closeNav} />
           <NavItem to="/tasks" icon={<ListTodo size={17} />} label="Tasks" count={openTasks} onNavigate={closeNav} />
-          <NavItem to="/calendar" icon={<CalendarDays size={17} />} label="Deadlines" onNavigate={closeNav} />
+          <NavItem to="/calendar" icon={<CalendarDays size={17} />} label="Calendar" onNavigate={closeNav} />
           {allowed('consultations') && (
             <NavItem to="/consultations" icon={<Clock size={17} />} label="Consultations" count={consultsToday} onNavigate={closeNav} />
           )}

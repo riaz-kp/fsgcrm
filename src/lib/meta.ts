@@ -184,10 +184,9 @@ export const ATTENDANCE: Record<AttendanceMark, { label: string; tone: Tone }> =
   P: { label: 'Present', tone: 'green' },
   H: { label: 'Half day', tone: 'amber' },
   L: { label: 'Leave', tone: 'violet' },
-  A: { label: 'Absent', tone: 'red' },
 }
 
-export const ATTENDANCE_ORDER: AttendanceMark[] = ['P', 'H', 'L', 'A']
+export const ATTENDANCE_ORDER: AttendanceMark[] = ['P', 'H', 'L']
 
 export const PAYMENT_MODES: PaymentMode[] = ['UPI', 'Cash', 'Bank transfer', 'Cheque']
 

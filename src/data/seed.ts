@@ -19,6 +19,7 @@ import type {
   GstStatus,
   ItFiling,
   Lead,
+  OffDays,
   Reminder,
   Remark,
   ScopeDef,
@@ -47,6 +48,7 @@ export interface SeedData {
   services: ServiceJob[]
   consultations: Consultation[]
   attendance: Attendance
+  offDays: OffDays
   scopes: ScopeDef[]
   reminders: Reminder[]
   /** Only the templates someone has reworded; the rest use the wording in TEMPLATES. */
@@ -885,26 +887,68 @@ function reminders(cs: Client[], today: string): Reminder[] {
 
 const hhmm = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
 
-/** The last few months up to today, with time in and out. Sundays are off; today is partly marked and nobody has left yet. */
-function attendance(emps: Employee[], today: string): Attendance {
+/** The first day the sample attendance covers. */
+const attendanceStart = (today: string) => `${shiftPeriod(today.slice(0, 7), -3)}-01`
+
+/**
+ * Sample off days: the national holidays that fall on a fixed date, from the start of the sample attendance to the
+ * end of next year. The firm adds its own (Onam, Vishu and the rest) from the attendance register.
+ */
+function offDays(today: string): OffDays {
+  const fixed: Array<[string, string]> = [
+    ['01-26', 'Republic Day'],
+    ['05-01', 'May Day'],
+    ['08-15', 'Independence Day'],
+    ['10-02', 'Gandhi Jayanti'],
+    ['12-25', 'Christmas'],
+  ]
+  const start = attendanceStart(today)
+  const out: OffDays = {}
+  for (let y = Number(start.slice(0, 4)); y <= Number(today.slice(0, 4)) + 1; y++)
+    for (const [md, name] of fixed) if (`${y}-${md}` >= start) out[`${y}-${md}`] = name
+  return out
+}
+
+/** The GST team stays late before the GSTR-1 and GSTR-3B cut-offs and comes in on the Sunday before the 11th. */
+const OVERTIME_CREW = new Set<string>([E.anna, E.hari, E.ramees, E.husni])
+
+/**
+ * The last few months up to today, with time in and out. Sundays and holidays are off, apart from the GST team's
+ * Sunday before the 11th; today is partly marked and nobody has left yet.
+ */
+function attendance(emps: Employee[], today: string, off: OffDays): Attendance {
   const out: Attendance = {}
-  const start = `${shiftPeriod(today.slice(0, 7), -3)}-01`
   emps.forEach((e, ei) => {
     const days: Record<string, AttendanceEntry> = {}
-    for (let day = start, n = 0; day <= today; day = addDays(day, 1), n++) {
+    const crew = OVERTIME_CREW.has(e.id)
+    for (let day = attendanceStart(today), n = 0; day <= today; day = addDays(day, 1), n++) {
       const [y, m, dd] = day.split('-').map(Number)
-      if (new Date(y, m - 1, dd).getDay() === 0) continue
+      const sunday = new Date(y, m - 1, dd).getDay() === 0
+      if (sunday || day in off) {
+        // Overtime on an off day: four hours on the Sunday that falls between the 4th and the 10th.
+        if (crew && sunday && dd >= 4 && dd <= 10 && day < today && ei % 2 === 0) days[day] = { mark: 'P', in: '10:00', out: '14:00', ot: 240 }
+        continue
+      }
       if (day === today && ei % 4 === 3) continue
       const k = n * 7 + ei * 13
-      const mark = day !== today && k % 23 === 0 ? 'A' : k % 17 === 0 ? 'L' : k % 19 === 0 ? 'H' : 'P'
-      if (mark === 'A' || mark === 'L') {
+      const mark = (day !== today && k % 23 === 0) || k % 17 === 0 ? 'L' : k % 19 === 0 ? 'H' : 'P'
+      if (mark === 'L') {
         days[day] = { mark }
         continue
       }
       // In between 9:05 and 9:50, out between 5:30 and 6:15; a half day ends at lunch.
       const timeIn = hhmm(545 + ((k * 7) % 46))
-      const timeOut = mark === 'H' ? hhmm(780 + ((k * 3) % 20)) : hhmm(1050 + ((k * 11) % 46))
-      days[day] = day === today ? { mark, in: timeIn } : { mark, in: timeIn, out: timeOut }
+      if (day === today) {
+        days[day] = { mark, in: timeIn }
+        continue
+      }
+      // On the staff cut-offs (the 10th and the 19th) the GST team works until 8 to 9:30 pm; time after 6 pm is overtime.
+      if (crew && mark === 'P' && (dd === 10 || dd === 19)) {
+        const late = 1200 + ((k * 3) % 4) * 30
+        days[day] = { mark, in: timeIn, out: hhmm(late), ot: late - 1080 }
+        continue
+      }
+      days[day] = { mark, in: timeIn, out: mark === 'H' ? hhmm(780 + ((k * 3) % 20)) : hhmm(1050 + ((k * 11) % 46)) }
     }
     out[e.id] = days
   })
@@ -917,6 +961,7 @@ export function buildSeed(): SeedData {
   const emps = employees(today)
   const data = { gst: gst(cs, today), tds: tds(cs, today), it: it(cs, today), audits: audits(cs, today), services: services(cs, today) }
   ledger(cs, data, today)
+  const off = offDays(today)
   return {
     employees: emps,
     clients: cs,
@@ -924,7 +969,8 @@ export function buildSeed(): SeedData {
     tasks: tasks(today, cs),
     ...data,
     consultations: consultations(cs, today),
-    attendance: attendance(emps, today),
+    attendance: attendance(emps, today, off),
+    offDays: off,
     scopes: BUILTIN_SCOPES.map((s) => ({ ...s })),
     reminders: reminders(cs, today),
     templates: {},

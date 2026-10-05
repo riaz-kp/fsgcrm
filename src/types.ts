@@ -377,14 +377,23 @@ export interface Reminder {
 
 export type TemplateKey = 'status' | 'requirements'
 
-export type AttendanceMark = 'P' | 'H' | 'L' | 'A'
+/** Present, half day or leave. There is no separate absent: a day away is leave. */
+export type AttendanceMark = 'P' | 'H' | 'L'
 
 export interface AttendanceEntry {
   mark: AttendanceMark
   /** Time in and out, HH:MM in 24h. Only kept for days worked. */
   in?: string
   out?: string
+  /** Overtime in minutes, as recorded by whoever keeps attendance. */
+  ot?: number
 }
+
+/**
+ * Days off for the whole firm on top of Sundays, such as public holidays: date -> name (may be empty).
+ * They are left out of the working days, and anyone who still comes in is marked as usual.
+ */
+export type OffDays = Record<string, string>
 
 /** employee id -> date -> entry */
 export type Attendance = Record<string, Record<string, AttendanceEntry>>

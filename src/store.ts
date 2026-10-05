@@ -76,6 +76,10 @@ interface Actions {
   setAttendance: (employeeId: string, date: string, mark?: AttendanceMark) => void
   /** Record time in or out; an empty string clears it. Marks the day present if it was blank. */
   setAttendanceTime: (employeeId: string, date: string, patch: Pick<AttendanceEntry, 'in' | 'out'>) => void
+  /** Overtime in minutes for a day someone worked; nothing or 0 clears it. */
+  setOvertime: (employeeId: string, date: string, minutes?: number) => void
+  /** Make a day off for everyone, with an optional name; `null` makes it a working day again. */
+  setOffDay: (date: string, name: string | null) => void
 }
 
 export interface State extends SeedData, Actions {
@@ -271,6 +275,7 @@ export const useStore = create<State>()(
           const days = { ...s.attendance[employeeId] }
           if (!mark) delete days[date]
           else if (mark === 'P' || mark === 'H') days[date] = { ...days[date], mark }
+          // A day on leave keeps no times or overtime.
           else days[date] = { mark }
           return { attendance: { ...s.attendance, [employeeId]: days } }
         }),
@@ -284,12 +289,41 @@ export const useStore = create<State>()(
           days[date] = entry
           return { attendance: { ...s.attendance, [employeeId]: days } }
         }),
+      setOvertime: (employeeId, date, minutes) =>
+        set((s) => {
+          const was = s.attendance[employeeId]?.[date]
+          if (!was || was.mark === 'L') return {}
+          const entry: AttendanceEntry = { ...was, ot: minutes && minutes > 0 ? Math.round(minutes) : undefined }
+          if (!entry.ot) delete entry.ot
+          return { attendance: { ...s.attendance, [employeeId]: { ...s.attendance[employeeId], [date]: entry } } }
+        }),
+      setOffDay: (date, name) =>
+        set((s) => {
+          const offDays = { ...s.offDays }
+          if (name === null) delete offDays[date]
+          else offDays[date] = name.trim()
+          return { offDays }
+        }),
     }),
     {
       name: 'fsg-crm-demo',
-      version: 5,
-      // The demo's shape changed; older saved sample data is replaced rather than patched.
-      migrate: () => ({ ...buildSeed(), currentUserId: 'e-praveen' }) as State,
+      version: 6,
+      migrate: (saved, version) => {
+        // From the last version, keep what people entered: absent days become leave, and the new
+        // off days come in from the sample data when the saved state is merged.
+        if (version === 5) {
+          const s = saved as State
+          const attendance = Object.fromEntries(
+            Object.entries(s.attendance ?? {}).map(([id, days]) => [
+              id,
+              Object.fromEntries(Object.entries(days).map(([date, e]) => [date, (e.mark as string) === 'A' ? { mark: 'L' as const } : e])),
+            ]),
+          )
+          return { ...s, attendance }
+        }
+        // Anything older had a different shape; it is replaced with fresh sample data.
+        return { ...buildSeed(), currentUserId: 'e-praveen' } as State
+      },
     },
   ),
 )

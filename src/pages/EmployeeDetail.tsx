@@ -6,7 +6,7 @@ import { Detail, Due, MailLink, PhoneLink, StatCard } from '../components/bits'
 import EmployeeForm from '../components/EmployeeForm'
 import WorkHistory from '../components/WorkHistory'
 import { Avatar, Badge, Button, Card, CardHeader, Empty, Progress, Segmented, Select } from '../components/ui'
-import { timing } from '../lib/attendance'
+import { offDayName, timing } from '../lib/attendance'
 import { ageFrom, currentGstPeriod, daysUntil, fmtDate, periodLabel, tenure, todayISO } from '../lib/format'
 import { workEntries } from '../lib/history'
 import { ATTENDANCE, ROLES, TASK_STATUS } from '../lib/meta'
@@ -24,6 +24,7 @@ const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? on
 function AtTheFirm({ emp, contact }: { emp: Employee; contact?: boolean }) {
   const employees = useStore((s) => s.employees)
   const today = useStore((s) => s.attendance[emp.id]?.[todayISO()])
+  const offToday = useStore((s) => offDayName(todayISO(), s.offDays))
   const manager = employees.find((e) => e.id === emp.reportsTo)
   const reports = employees.filter((e) => e.reportsTo === emp.id)
 
@@ -80,7 +81,7 @@ function AtTheFirm({ emp, contact }: { emp: Employee; contact?: boolean }) {
                 {timing(today) && <span className="tnum ml-2 text-[13px] font-normal text-ink-500">{timing(today)}</span>}
               </>
             ) : (
-              <span className="font-normal text-ink-400">Attendance not marked yet</span>
+              <span className="font-normal text-ink-400">{offToday ? `Off today · ${offToday}` : 'Attendance not marked yet'}</span>
             )}
           </Detail>
         )}

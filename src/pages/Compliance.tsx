@@ -4,7 +4,7 @@ import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { Due } from '../components/bits'
 import { Badge, Button, Card, Empty, Field, Input, Modal, PageHeader, Segmented, Select, StatusSelect, Td, Th } from '../components/ui'
 import { itDueDate } from '../lib/deadlines'
-import { addDays, cn, currentGstPeriod, financialYear, fmtDate, inr, periodLabel, todayISO } from '../lib/format'
+import { addDays, cn, currentGstPeriod, financialYear, fmtDate, inr, periodLabel, shiftPeriod, todayISO } from '../lib/format'
 import { GST_DATA_TYPES, GST_STATUS, SERVICE_KINDS, SIMPLE_STATUS, options, type Tone, type TrackerTab } from '../lib/meta'
 import { useCan, useStore } from '../store'
 import type { AuditFiling, Client, GstDataType, GstFiling, ItFiling, ServiceKind, SimpleStatus, TdsPayment } from '../types'
@@ -559,9 +559,22 @@ function TdsTracker() {
   const [owing, setOwing] = useState(false)
   const [notIn, setNotIn] = useState(false)
   const fy = tds[0]?.fy ?? financialYear()
-  const monthLabel = periodLabel(month, true)
+  // Just the month's name ("September"): the year is in the month picker, and "Sep 26" would read like a date.
+  const monthLabel = periodLabel(month).split(' ')[0]
   // A month with nothing recorded has not been deposited yet.
   const paymentFor = (t: (typeof tds)[number]) => t.payments[month] ?? 'due'
+  /** Deposits made this financial year: April up to the month being worked on, leaving out months marked N/A. */
+  const paidSoFar = (t: (typeof tds)[number]) => {
+    const y = Number(t.fy.slice(0, 4))
+    let paid = 0
+    let months = 0
+    for (let m = `${y}-04`; m <= current && m <= `${y + 1}-03`; m = shiftPeriod(m, 1)) {
+      if (t.payments[m] === 'na') continue
+      months++
+      if (t.payments[m] === 'paid') paid++
+    }
+    return { paid, months }
+  }
   const owed = (t: (typeof tds)[number]) => Math.max(0, t.fee - t.received)
   const setDataIn = (t: (typeof tds)[number], date?: string) => {
     const dataIn = { ...t.dataIn }
@@ -621,9 +634,9 @@ function TdsTracker() {
       </FilterBar>
       <Summary
         items={[
-          { label: 'Deductors', value: rows.length },
-          { label: `${monthLabel} data not in`, value: rows.filter((t) => !t.dataIn[month]).length, tone: 'red' },
+          { label: `${monthLabel} paid`, value: `${rows.filter((t) => paymentFor(t) === 'paid').length} / ${rows.length}`, tone: 'green' },
           { label: `${monthLabel} payment due`, value: rows.filter((t) => paymentFor(t) === 'due').length, tone: 'amber' },
+          { label: `${monthLabel} data not in`, value: rows.filter((t) => !t.dataIn[month]).length, tone: 'red' },
           { label: 'Q1 returns done', value: `${rows.filter((t) => isClosed(t.quarters[0])).length} / ${rows.length}` },
           { label: 'Q2 returns done', value: `${rows.filter((t) => isClosed(t.quarters[1])).length} / ${rows.length}` },
           fees && { label: 'Fee balance', value: inr(feeBalance), tone: 'amber' },
@@ -665,6 +678,7 @@ function TdsTracker() {
         >
           {rows.map((t) => {
             const c = clients.get(t.clientId)
+            const year = paidSoFar(t)
             return (
               <tr key={t.id}>
                 <Td>
@@ -680,6 +694,11 @@ function TdsTracker() {
                     options={PAYMENT}
                     onChange={(v) => updateTds(t.id, { payments: { ...t.payments, [month]: v } })}
                   />
+                  {year.months > 0 && (
+                    <p className={cn('tnum mt-0.5 text-xs whitespace-nowrap', year.paid < year.months ? 'text-amber-700' : 'text-ink-500')} title={`Deposits made in FY ${t.fy} so far`}>
+                      {year.paid} of {year.months} months paid
+                    </p>
+                  )}
                 </Td>
                 {shownQuarters.map((i) => (
                   <Td label={`Q${i + 1} return`} key={i}>
