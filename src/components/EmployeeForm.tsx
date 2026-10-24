@@ -2,7 +2,8 @@ import { Camera } from 'lucide-react'
 import { useRef, useState, type ReactNode } from 'react'
 import { ageFrom, cn, todayISO } from '../lib/format'
 import { BLOOD_GROUPS, ROLES, options } from '../lib/meta'
-import { isHead, useStore } from '../store'
+import { LIVE } from '../lib/supabase'
+import { isHead, managesLogins, useCurrentUser, useStore } from '../store'
 import type { BloodGroup, Employee, FamilyDetails, Role } from '../types'
 import { Avatar, Button, Field, Input, Modal, Select, Textarea } from './ui'
 
@@ -27,6 +28,8 @@ function resizePhoto(file: File, size = 240): Promise<string> {
   })
 }
 
+const TOP_ROLES: Role[] = ['admin', 'ceo']
+
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="mt-5 first:mt-0">
@@ -40,6 +43,10 @@ export default function EmployeeForm({ employee, onClose }: { employee?: Employe
   const addEmployee = useStore((s) => s.addEmployee)
   const updateEmployee = useStore((s) => s.updateEmployee)
   const employees = useStore((s) => s.employees)
+  const me = useCurrentUser()
+  // Only the admin or the CEO makes someone admin or CEO, or changes the role of someone who is.
+  const mayGiveTopRoles = managesLogins(me)
+  const topRoleLocked = !mayGiveTopRoles && !!employee && TOP_ROLES.includes(employee.role)
   const file = useRef<HTMLInputElement>(null)
   const [error, setError] = useState('')
   const [f, setF] = useState({
@@ -148,13 +155,15 @@ export default function EmployeeForm({ employee, onClose }: { employee?: Employe
         <Field label="Designation">
           <Input value={f.title} onChange={(e) => set('title', e.target.value)} />
         </Field>
-        <Field label="Role">
-          <Select value={f.role} onChange={(e) => set('role', e.target.value as Role)}>
-            {options(ROLES).map((r) => (
-              <option key={r.value} value={r.value}>
-                {r.label}
-              </option>
-            ))}
+        <Field label="Role" hint={topRoleLocked ? 'Only the admin or the CEO can change this' : undefined}>
+          <Select value={f.role} onChange={(e) => set('role', e.target.value as Role)} disabled={topRoleLocked}>
+            {options(ROLES)
+              .filter((r) => mayGiveTopRoles || !TOP_ROLES.includes(r.value) || r.value === employee?.role)
+              .map((r) => (
+                <option key={r.value} value={r.value}>
+                  {r.label}
+                </option>
+              ))}
           </Select>
         </Field>
         <Field label="Reports to">
@@ -184,7 +193,7 @@ export default function EmployeeForm({ employee, onClose }: { employee?: Employe
         <Field label="Mobile number">
           <Input value={f.phone} onChange={(e) => set('phone', e.target.value)} inputMode="tel" />
         </Field>
-        <Field label="Mail ID">
+        <Field label="Mail ID" hint={LIVE ? 'They sign up and sign in with this email' : undefined}>
           <Input value={f.email} onChange={(e) => set('email', e.target.value)} type="email" />
         </Field>
         <Field label="Blood group">

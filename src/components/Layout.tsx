@@ -8,10 +8,14 @@ import {
   ChevronsUpDown,
   ClipboardList,
   Clock,
+  CloudCheck,
+  CloudOff,
+  CloudUpload,
   FileCheck2,
   Landmark,
   LayoutDashboard,
   ListTodo,
+  LogOut,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
@@ -24,15 +28,19 @@ import {
   Stamp,
   Target,
   UserPlus,
+  UserRound,
   Users,
   X,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { statutoryDeadlines } from '../lib/deadlines'
 import { addDays, cn, daysUntil, fmtDate, fmtTime, relDue, todayISO } from '../lib/format'
 import { DEPARTMENTS, ROLES } from '../lib/meta'
+import { LIVE } from '../lib/supabase'
+import { dismissSyncError, useSyncStatus } from '../lib/sync'
 import { can, useCan, useCurrentUser, useDueReminders, useLookup, useStore, useVisibleTasks } from '../store'
+import { useAccount } from '../lib/account'
 import { Avatar, Badge, Button, IconButton } from './ui'
 
 /** Close a popover when the user clicks elsewhere or presses Escape. */
@@ -106,6 +114,42 @@ function NavHeading({ children }: { children: ReactNode }) {
   )
 }
 
+/** Live: who is signed in, their profile and signing out. */
+function AccountMenu({ onClose }: { onClose: () => void }) {
+  const me = useCurrentUser()
+  const account = useAccount()
+  const navigate = useNavigate()
+  const item = 'flex w-full items-center gap-2 px-3 py-2.5 text-[13px] font-semibold text-ink-600 hover:bg-ink-50'
+  return (
+    <>
+      <div className="px-3 pt-3 pb-2.5">
+        <p className="text-[11px] font-bold tracking-wider text-ink-400 uppercase">Signed in as</p>
+        <p className="mt-0.5 truncate text-[13px] font-semibold text-ink-800">{account?.login}</p>
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          navigate(`/team/${me.id}`)
+          onClose()
+        }}
+        className={cn(item, 'border-t border-ink-100')}
+      >
+        <UserRound size={14} /> My profile
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          onClose()
+          account?.signOut()
+        }}
+        className={cn(item, 'border-t border-ink-100')}
+      >
+        <LogOut size={14} /> Sign out
+      </button>
+    </>
+  )
+}
+
 function UserSwitcher() {
   const [open, setOpen] = useState(false)
   const ref = useDismiss(open, () => setOpen(false))
@@ -116,7 +160,12 @@ function UserSwitcher() {
 
   return (
     <div ref={ref} className="relative">
-      {open && (
+      {open && LIVE && (
+        <div className="absolute right-0 bottom-full left-0 z-30 mb-2 animate-pop-in overflow-hidden rounded-xl bg-white shadow-pop ring-1 ring-ink-200 rail:right-auto rail:w-56">
+          <AccountMenu onClose={() => setOpen(false)} />
+        </div>
+      )}
+      {open && !LIVE && (
         <div className="absolute right-0 bottom-full left-0 z-30 mb-2 animate-pop-in overflow-hidden rounded-xl bg-white shadow-pop ring-1 ring-ink-200 rail:right-auto rail:w-56">
           <p className="px-3 pt-3 pb-1.5 text-[11px] font-bold tracking-wider text-ink-400 uppercase">View the demo as</p>
           <ul className="scroll-thin max-h-72 overflow-y-auto px-1.5 pb-1.5">
@@ -156,7 +205,7 @@ function UserSwitcher() {
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        title={`${me.name} · switch person`}
+        title={LIVE ? `${me.name} · account` : `${me.name} · switch person`}
         className="flex w-full items-center gap-2.5 rounded-xl p-2 text-left ring-1 ring-ink-200 transition-colors hover:bg-ink-50 rail:justify-center rail:p-1 rail:ring-0"
       >
         <Avatar name={me.name} hue={me.hue} photo={me?.photo} size={34} />
@@ -387,6 +436,40 @@ function Reminders() {
   )
 }
 
+/** Live: whether what was changed here has reached the database, and anything it turned down. */
+function SaveStatus() {
+  const { saving, offline, error } = useSyncStatus()
+  if (!LIVE) return null
+  return (
+    <>
+      <span
+        className={cn('hidden items-center gap-1.5 text-xs font-semibold sm:inline-flex', offline ? 'text-amber-700' : 'text-ink-400')}
+        title={offline ? 'No connection. Changes are kept and saved when it is back.' : saving ? 'Saving changes' : 'All changes saved'}
+        role="status"
+      >
+        {offline ? <CloudOff size={16} /> : saving ? <CloudUpload size={16} className="animate-pulse" /> : <CloudCheck size={16} />}
+        <span className="hidden lg:inline">{offline ? 'Offline, will save' : saving ? 'Saving…' : 'Saved'}</span>
+      </span>
+      {offline && (
+        <span className="text-amber-700 sm:hidden" title="No connection. Changes are kept and saved when it is back.">
+          <CloudOff size={16} />
+        </span>
+      )}
+      {error && (
+        <div
+          role="alert"
+          className="fixed inset-x-3 bottom-4 z-[60] mx-auto flex max-w-lg animate-pop-in items-start gap-3 rounded-xl bg-ink-900 px-4 py-3 text-[13px] text-white shadow-pop"
+        >
+          <p className="flex-1">{error}</p>
+          <button type="button" onClick={dismissSyncError} className="shrink-0 font-semibold text-brand-200 hover:text-white">
+            Dismiss
+          </button>
+        </div>
+      )}
+    </>
+  )
+}
+
 function QuickAdd() {
   const [open, setOpen] = useState(false)
   const ref = useDismiss(open, () => setOpen(false))
@@ -499,7 +582,7 @@ export default function Layout() {
           <NavHeading>Firm</NavHeading>
           <NavItem to="/team" icon={<Users size={17} />} label="Team" onNavigate={closeNav} />
           <NavItem to="/attendance" icon={<CalendarCheck size={17} />} label="Attendance" onNavigate={closeNav} />
-          {allowed('settings') && <NavItem to="/settings" icon={<Settings size={17} />} label="Settings" onNavigate={closeNav} />}
+          {(allowed('settings') || (LIVE && allowed('manage_logins'))) && <NavItem to="/settings" icon={<Settings size={17} />} label="Settings" onNavigate={closeNav} />}
         </nav>
 
         <div className="p-3 rail:p-2">
@@ -519,13 +602,16 @@ export default function Layout() {
           <span className="hidden md:block">
             <Badge tone={ROLES[me.role].tone}>{allowed('assign_tasks') ? 'Can assign & approve' : 'Reports progress'}</Badge>
           </span>
+          <SaveStatus />
           <Reminders />
           <QuickAdd />
         </div>
       </header>
 
       <main className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
-        <Outlet key={me.id} />
+        <Suspense fallback={<p className="py-16 text-center text-[13px] text-ink-400">Loading…</p>}>
+          <Outlet key={me.id} />
+        </Suspense>
       </main>
     </div>
   )

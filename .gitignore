@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local builds on sample data (VITE_DEMO=true)
+dist-demo

@@ -2,8 +2,14 @@ export function cn(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(' ')
 }
 
+/** Random hex, from the browser's secure generator (which, unlike randomUUID, also works on a plain-http LAN address). */
+export function randomId(bytes = 8): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** Ids are made in the browser, by several people at once, so they need to be too random to collide. */
 export function uid(prefix = 'id'): string {
-  return `${prefix}-${Math.random().toString(36).slice(2, 9)}`
+  return `${prefix}-${randomId(8)}`
 }
 
 /* ---------- Dates (plain YYYY-MM-DD strings, local time) ---------- */

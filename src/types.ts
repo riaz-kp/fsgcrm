@@ -1,4 +1,5 @@
-export type Role = 'ceo' | 'head' | 'trainee' | 'staff'
+/** The admin runs the system with the CEO: both give out logins. */
+export type Role = 'admin' | 'ceo' | 'head' | 'trainee' | 'staff'
 
 export type BloodGroup = 'A+' | 'A-' | 'B+' | 'B-' | 'AB+' | 'AB-' | 'O+' | 'O-'
 
@@ -33,6 +34,10 @@ export interface Employee {
   photo?: string
   /** What this person may do. Left unset, it follows their role (see ROLE_PERMISSIONS). */
   permissions?: Permission[]
+  /** What they sign in with. Given out, with a password, by the admin or the CEO in Settings → Logins. */
+  username?: string
+  /** Whether they can sign in at all. */
+  hasLogin?: boolean
 }
 
 /** Things the firm can allow or withhold person by person, in Settings. */
@@ -46,6 +51,7 @@ export type Permission =
   | 'view_team'
   | 'edit_team'
   | 'settings'
+  | 'manage_logins'
 
 export type ClientCategory =
   | 'Company'
@@ -117,6 +123,14 @@ export interface ClientDoc {
   kind: DocKind
   sizeKb: number
   uploadedAt: string
+  /** Where the file is in storage. Unset on sample data, where only the name and size are kept. */
+  path?: string
+}
+
+export interface Recording {
+  name: string
+  sizeKb: number
+  path?: string
 }
 
 export interface Client {
@@ -154,7 +168,7 @@ export interface Clarification {
   at: string
   by: string
   summary: string
-  recording?: { name: string; sizeKb: number }
+  recording?: Recording
 }
 
 export type PaymentMode = 'Cash' | 'UPI' | 'Bank transfer' | 'Cheque'

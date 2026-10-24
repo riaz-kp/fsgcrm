@@ -198,6 +198,7 @@ export const BLOOD_GROUPS: BloodGroup[] = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-',
 export const FIRM_NAME = 'Fin Savvy Consultors LLP'
 
 export const ROLES: Meta<Role> = {
+  admin: { label: 'Admin', tone: 'blue' },
   ceo: { label: 'CEO', tone: 'blue' },
   head: { label: 'Head', tone: 'violet' },
   staff: { label: 'Staff', tone: 'teal' },
@@ -218,14 +219,21 @@ export const PERMISSIONS: Array<{ key: Permission; label: string; short: string;
   { key: 'view_team', label: "See colleagues' details", short: 'Team', hint: "Sees everyone's personal and family details, work and attendance, not only their own." },
   { key: 'edit_team', label: 'Add & edit team', short: 'Edit team', hint: 'Adds team members and edits their profile, role and reporting line.' },
   { key: 'settings', label: 'Change settings', short: 'Settings', hint: 'Changes scopes, permissions and message templates in Settings.' },
+  {
+    key: 'manage_logins',
+    label: 'Give out logins',
+    short: 'Logins',
+    hint: 'Creates usernames and passwords for the team, sets new passwords and removes logins, and can make someone admin or CEO. Only people who have it can give it to others.',
+  },
 ]
 
 const ALL_PERMISSIONS = PERMISSIONS.map((p) => p.key)
 
-/** What each role gets until someone changes it person by person. Heads and the CEO get everything, as before. */
+/** What each role gets until someone changes it person by person. The admin and the CEO get everything; heads all but giving out logins. Mirrors role_permissions in the database. */
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
+  admin: ALL_PERMISSIONS,
   ceo: ALL_PERMISSIONS,
-  head: ALL_PERMISSIONS,
+  head: ALL_PERMISSIONS.filter((p) => p !== 'manage_logins'),
   staff: ['edit_clients', 'view_logins', 'view_fees'],
   trainee: ['edit_clients', 'view_logins', 'view_fees'],
 }

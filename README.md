@@ -1,8 +1,9 @@
-# FSG Practice Manager — frontend demo
+# FSG Practice Manager
 
-A clickable demo of the CRM for Fin Savvy Consultors LLP: clients, leads, tasks,
-filing trackers, deadlines and the team. There is no backend yet. Everything runs
-in the browser on made-up sample data and is saved to `localStorage`.
+The practice manager for Fin Savvy Consultors LLP: clients, leads, tasks, filing trackers,
+deadlines and the team. The team signs in, and everything is kept in a Supabase (Postgres)
+database, with files in Supabase Storage. Changes are saved as they are made and show up for
+everyone else straight away.
 
 ## Run it
 
@@ -13,21 +14,119 @@ npm run dev
 
 Then open http://localhost:5173.
 
+With `.env.local` filled in (see `.env.example`) the app talks to the database and asks you to sign
+in. With no database settings, `npm run dev` opens on made-up sample data kept in your browser,
+handy for trying a change without touching real work.
+
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Development server |
+| `npm run build` | Type-check and build into `dist/` |
+| `npm run preview` | Serve `dist/` with the same security headers as the live site |
+| `npm run lint` | Lint |
+
+If `npm install` hangs with `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` on a Mac, point Node at the
+system certificate bundle first: `export NODE_EXTRA_CA_CERTS=/etc/ssl/cert.pem`.
+
+## The database
+
+Everything the database needs is in `supabase/migrations/`, in order:
+
+| File | What it sets up |
+| --- | --- |
+| `…_init.sql` | One table per list the app keeps, the access rules, encrypted portal passwords, the `client-files` bucket and live updates |
+| `…_starting_data.sql` | The nine team members and the built-in scopes of work. No clients or sample figures |
+| `…_lock_trigger_functions.sql` | Keeps internal functions out of the API |
+| `…_username_logins.sql` | Usernames, the admin role, and logins only the admin or CEO can create |
+
+They have been applied to the project `ibektwkpgpybuixadqcl`, and the `staff-logins` function is
+deployed there. For a new project:
+
+1. Run the migrations in the SQL editor in that order (or link the project with the Supabase CLI and
+   run `supabase db push`).
+2. Deploy the function: `supabase functions deploy staff-logins --no-verify-jwt` (it checks the
+   caller itself).
+3. Give the first admin a login. Nobody can sign in yet to do it from the app, so in the SQL editor run
+   `select public.grant_login('e-admin', 'admin@fsg.local');` and, within two minutes, add a user in
+   Authentication → Users with that email, a password and *Auto confirm* ticked. Then run
+   `update public.employees set username = 'admin' where id = 'e-admin';`. The admin signs in as
+   `admin` and gives everyone else a login from Settings → Logins.
+
+### Who can do what
+
+Every table has row level security, so the rules hold whatever someone does with the API, not
+just in the app:
+
+- Only an **active team member who has signed in** sees anything. Anyone else, signed in or not,
+  gets nothing.
+- **Logins are given out only by people with the "Give out logins" permission** (the admin and the
+  CEO to start with), in Settings → Logins. Nobody can sign up on their own: the database turns away
+  any sign-in that was not made there, even one made by calling Supabase's sign-up API directly.
+  Only people with that permission can grant it to others, or make someone admin or CEO.
+- The permissions in Settings are enforced by the database too: assigning tasks, keeping
+  attendance, the CEO's consultations, changing settings and editing the team. Only someone who may
+  change settings can change permissions.
+- **Portal passwords** are encrypted with a key kept in Supabase Vault. Usernames show to the whole
+  team; passwords only reach people allowed to see them, and only they can change logins.
+- Client documents and call recordings sit in a private bucket and are opened through links that
+  last a minute.
+- Fees, and colleagues' personal details, are hidden in the app from people without the permission,
+  but the database does not hide those columns from the rest of the team.
+
+### Logins
+
+People sign in with a **username and password** given to them by someone with the "Give out logins"
+permission (Settings → Permissions; the admin and the CEO have it to start with). There is no sign-up
+and no "forgot password": they set a new password from Settings → Logins.
+
+- **Create logins for everyone** makes a username and a random password for each active person
+  without a login, saves the list as `fsg-logins.csv` straight away, and shows it once to copy or
+  print as slips. Passwords are not stored anywhere readable, so keep that file safe.
+- Per person: create a login, set a new password, change the username, or remove the login.
+- Someone who leaves: mark them not active on the Team page (their sign-in stops working at once),
+  or remove their login.
+
+Supabase Auth signs in by email, so behind the scenes a username is kept as `<username>@fsg.local`.
+No email is ever sent to those addresses. The work is done by the `staff-logins` Edge Function
+(`supabase/functions/staff-logins`), which holds the service key; the browser never sees it.
+
+The admin's own login was made with an email before usernames existed, and still works: the sign-in
+box accepts that email. Give the admin a username from Settings → Logins → Set username.
+
+### Supabase settings to check
+
+In Supabase → Authentication → Sign In / Providers, turn off **Allow new users to sign up**. The
+database already refuses sign-ups it was not asked for, so this is a second lock on the same door.
+Email confirmation, SMTP and redirect URLs no longer matter, since the app sends no email.
+
 ## Deploying
 
-The app is a single-page app: every address (`/clients`, `/filings/gst`…) is drawn by the same
-`index.html`. `vercel.json` tells Vercel to answer any address that is not a real file with
-`index.html`, so refreshing or opening a deep link works instead of showing Vercel's 404 page.
-Another host needs the same "fall back to index.html" rule.
+On Vercel, set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` under Settings →
+Environment Variables, then deploy. A production build without them shows a "not connected" page
+rather than falling back to sample data; set `VITE_DEMO=true` to deploy the sample-data demo on
+purpose.
 
-If `npm install` hangs with `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` on this Mac, point
-Node at the system certificate bundle first:
+`vercel.json` does two things:
 
-```bash
-export NODE_EXTRA_CA_CERTS=/etc/ssl/cert.pem
-```
+- Answers any address that is not a real file with `index.html`, so refreshing or opening a deep
+  link (`/clients/…`) works. Another host needs the same rule.
+- Sends security headers: a Content-Security-Policy that only allows the app itself and Supabase,
+  no framing, no MIME sniffing, and long caching for the hashed files in `/assets`.
 
-## What's in the demo
+## How saving works
+
+The screens read and change the app's state exactly as they did on sample data. `src/lib/sync.ts`
+watches that state, works out which records changed, and saves only the changed fields: a burst
+of typing becomes one request, records are saved before anything that points at them, and a save
+that fails for want of a connection is kept and tried again. The header shows **Saving…**,
+**Saved** or **Offline**. If the database turns a change down (say, a permission was just taken
+away), a message says so and the record goes back to what the database has.
+
+Other people's changes arrive over Supabase Realtime and appear without a reload. If the live
+connection drops, everything is loaded again once it is back. Closing the tab while something is
+still being saved asks first.
+
+## What's in the app
 
 | Screen | What it shows |
 | --- | --- |
@@ -43,8 +142,8 @@ export NODE_EXTRA_CA_CERTS=/etc/ssl/cert.pem
 | Attendance | Daily register of present, half day and leave, with time in and out and overtime in hours. Sundays and the holidays the firm marks are off for everyone and left out of the month's working days; someone who comes in on one is marked as usual. Each person has a detail page with working days, days worked, leave, overtime, hours, day-by-day timings and a month-by-month summary |
 | Settings | Scopes of work (add, edit, delete), what each person may do, and the wording of the WhatsApp messages |
 
-Use the name at the bottom of the sidebar to view the demo as a different person.
-"Reset sample data" is in the same menu.
+The name at the bottom of the sidebar opens your profile and signs you out. On sample data it
+instead switches who you are viewing the app as, and has "Reset sample data".
 
 What each person may do (assign tasks, edit clients, see passwords or fees, keep attendance, see
 colleagues' details, edit the team, change settings) starts from their role and can be changed
@@ -65,8 +164,14 @@ The app adapts from a phone to a wide monitor:
 
 ## Where things live
 
-- `src/data/seed.ts` — sample data. Staff names are real; every client and login is invented. Staff dates of birth and joining are placeholders, and their address, blood group, qualification and family details are left empty for them to fill in
-- `src/store.ts` — app state and actions; the place a real API would plug in
+- `supabase/migrations/` — the database: tables, access rules, starting data
+- `src/lib/supabase.ts` — the connection, and whether the app runs live or on sample data
+- `src/lib/sync.ts` — loads the firm's data, saves changes, applies other people's changes
+- `src/lib/files.ts` — client documents and call recordings in Storage
+- `src/components/AuthGate.tsx`, `src/pages/SignIn.tsx` — signing in with a username
+- `src/pages/SettingsLogins.tsx`, `src/lib/logins.ts`, `supabase/functions/staff-logins/` — giving out logins
+- `src/data/seed.ts` — sample data, used only without a database. Staff names are real; every client and login is invented
+- `src/store.ts` — app state and actions
 - `src/lib/deadlines.ts` — statutory dates and FSG's one-day-early staff cut-offs
 - `src/lib/meta.ts` — labels for scopes, statuses, departments
 - `src/lib/history.ts` — builds the work history from the trackers and tasks, for a client's page and a person's page

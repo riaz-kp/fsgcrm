@@ -1,9 +1,10 @@
 import { useMemo } from 'react'
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware'
 import { buildSeed, type SeedData } from './data/seed'
 import { addDays, currentGstPeriod, todayISO, uid } from './lib/format'
 import { ROLE_PERMISSIONS, TEMPLATES } from './lib/meta'
+import { LIVE } from './lib/supabase'
 import type {
   AttendanceEntry,
   AttendanceMark,
@@ -86,6 +87,33 @@ export interface State extends SeedData, Actions {
   currentUserId: string
 }
 
+/** What the store holds before the firm's data has loaded, and after signing out. */
+export function emptyData(): SeedData {
+  return {
+    employees: [],
+    clients: [],
+    leads: [],
+    tasks: [],
+    gst: [],
+    tds: [],
+    it: [],
+    audits: [],
+    services: [],
+    consultations: [],
+    attendance: {},
+    offDays: {},
+    scopes: [],
+    reminders: [],
+    templates: {},
+  }
+}
+
+/**
+ * On sample data everything is kept in this browser. Live, the database is the record (see lib/sync.ts), and
+ * nothing about clients is left behind in the browser's storage.
+ */
+const nowhere: StateStorage = { getItem: () => null, setItem: () => undefined, removeItem: () => undefined }
+
 function patchIn<T extends { id: string }>(list: T[], id: string, patch: Partial<T>): T[] {
   return list.map((x) => (x.id === id ? { ...x, ...patch } : x))
 }
@@ -104,12 +132,17 @@ function patchStatus<T extends { id: string; status: SimpleStatus; doneOn?: stri
 export const useStore = create<State>()(
   persist(
     (set, get) => ({
-      ...buildSeed(),
-      // Praveen allocates the work, so the demo opens on his view.
-      currentUserId: 'e-praveen',
+      ...(LIVE ? emptyData() : buildSeed()),
+      // Live, this is whoever signed in. Praveen allocates the work, so the demo opens on his view.
+      currentUserId: LIVE ? '' : 'e-praveen',
 
-      setCurrentUser: (id) => set({ currentUserId: id }),
-      resetDemo: () => set({ ...buildSeed(), currentUserId: 'e-praveen' }),
+      // Both are for the demo only: live, you are who you signed in as, and the data is the firm's.
+      setCurrentUser: (id) => {
+        if (!LIVE) set({ currentUserId: id })
+      },
+      resetDemo: () => {
+        if (!LIVE) set({ ...buildSeed(), currentUserId: 'e-praveen' })
+      },
 
       addClient: (c) => {
         const { clients } = get()
@@ -307,6 +340,7 @@ export const useStore = create<State>()(
     }),
     {
       name: 'fsg-crm-demo',
+      storage: createJSONStorage(() => (LIVE ? nowhere : localStorage)),
       version: 6,
       migrate: (saved, version) => {
         // From the last version, keep what people entered: absent days become leave, and the new
@@ -344,6 +378,11 @@ export function isHead(e: Employee): boolean {
 /** What a person may do: what was set for them in Settings, or else what their role gives. */
 export function permissionsOf(e: Employee): Permission[] {
   return e.permissions ?? ROLE_PERMISSIONS[e.role]
+}
+
+/** Giving out logins, and making someone admin or CEO. The admin and the CEO have it to start with; the database holds to the same. */
+export function managesLogins(e: Employee): boolean {
+  return permissionsOf(e).includes('manage_logins')
 }
 
 export function can(e: Employee, p: Permission): boolean {

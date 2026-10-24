@@ -1,18 +1,22 @@
+import { lazy } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
-import AttendancePage, { AttendanceDetail } from './pages/Attendance'
-import Calendar from './pages/Calendar'
-import ClientDetail from './pages/ClientDetail'
-import Clients from './pages/Clients'
-import Compliance from './pages/Compliance'
-import Consultations from './pages/Consultations'
 import Dashboard from './pages/Dashboard'
-import EmployeeDetail from './pages/EmployeeDetail'
-import Leads from './pages/Leads'
-import Requirements from './pages/Requirements'
-import Settings from './pages/Settings'
-import Tasks from './pages/Tasks'
-import Team from './pages/Team'
+
+// Each screen is fetched when it is first opened, so the first load stays small (the PDF maker alone is ~400 kB).
+const AttendancePage = lazy(() => import('./pages/Attendance'))
+const AttendanceDetail = lazy(() => import('./pages/Attendance').then((m) => ({ default: m.AttendanceDetail })))
+const Calendar = lazy(() => import('./pages/Calendar'))
+const ClientDetail = lazy(() => import('./pages/ClientDetail'))
+const Clients = lazy(() => import('./pages/Clients'))
+const Compliance = lazy(() => import('./pages/Compliance'))
+const Consultations = lazy(() => import('./pages/Consultations'))
+const EmployeeDetail = lazy(() => import('./pages/EmployeeDetail'))
+const Leads = lazy(() => import('./pages/Leads'))
+const Requirements = lazy(() => import('./pages/Requirements'))
+const Settings = lazy(() => import('./pages/Settings'))
+const Tasks = lazy(() => import('./pages/Tasks'))
+const Team = lazy(() => import('./pages/Team'))
 
 export default function App() {
   return (

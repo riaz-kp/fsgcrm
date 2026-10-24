@@ -34,6 +34,7 @@
   --animate-fade-in: fade-in 0.15s ease-out;
   --animate-slide-in: slide-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
   --animate-pop-in: pop-in 0.16s ease-out;
+  --animate-loading: loading 1.1s ease-in-out infinite;
 
   @keyframes fade-in {
     from {
@@ -44,6 +45,14 @@
     from {
       transform: translateX(24px);
       opacity: 0;
+    }
+  }
+  @keyframes loading {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(300%);
     }
   }
   @keyframes pop-in {

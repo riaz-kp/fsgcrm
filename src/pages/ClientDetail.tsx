@@ -37,9 +37,11 @@ import { Avatar, Badge, Button, Card, CardHeader, Empty, Field, IconButton, Inpu
 import { statutoryDeadlines } from '../lib/deadlines'
 import { workEntries } from '../lib/history'
 import { addDays, cn, currentGstPeriod, daysUntil, fileSize, fmtDate, inr, periodLabel, todayISO, uid } from '../lib/format'
+import { MAX_FILE_MB, openClientFile, removeClientFile, uploadClientFile } from '../lib/files'
 import { CATEGORY_TONE, DEPARTMENTS, DOC_KINDS, GST_DATA_TYPES, GST_STATUS, PAYMENT_MODES, PORTALS, SIMPLE_STATUS, TASK_STATUS } from '../lib/meta'
+import { LIVE } from '../lib/supabase'
 import { useCan, useCurrentUser, useLookup, useScopes, useStore, useVisibleTasks } from '../store'
-import type { Client, Credential, DocKind, PaymentMode, Portal, ScopeKey } from '../types'
+import type { Clarification, Client, ClientDoc, Credential, DocKind, PaymentMode, Portal, Recording, ScopeKey } from '../types'
 
 type Tab = 'overview' | 'clarifications' | 'fees' | 'logins' | 'documents' | 'work'
 
@@ -415,9 +417,11 @@ function Logins({ client }: { client: Client }) {
 
       <p className="flex items-start gap-2 border-t border-ink-100 px-5 py-3 text-xs text-ink-500">
         <ShieldCheck size={14} className="mt-px shrink-0 text-emerald-600" />
-        {access
-          ? 'These are sample logins. In the live system passwords would be stored encrypted and limited to the staff working on the client.'
-          : 'You do not have access to portal passwords. Ask a head if you need one, or to be given access in Settings.'}
+        {!access
+          ? 'You do not have access to portal passwords. Ask a head if you need one, or to be given access in Settings.'
+          : LIVE
+            ? 'Passwords are stored encrypted and only reach the people allowed to see them in Settings.'
+            : 'These are sample logins. In the live system passwords are stored encrypted and limited to the people allowed to see them.'}
       </p>
     </Card>
   )
@@ -432,22 +436,56 @@ const DOC_ICON: Record<DocKind, ReactNode> = {
   Other: <FileText size={18} />,
 }
 
+/** The client as the store has it now, for work that finishes after an upload, when the page's copy may be out of date. */
+const latest = (id: string) => useStore.getState().clients.find((c) => c.id === id)
+
+const sizeKb = (f: File) => Math.max(1, Math.round(f.size / 1024))
+
 function Documents({ client }: { client: Client }) {
   const updateClient = useStore((s) => s.updateClient)
   const input = useRef<HTMLInputElement>(null)
   const [kind, setKind] = useState<DocKind>('Aadhaar')
+  const [uploading, setUploading] = useState(0)
+  const [problem, setProblem] = useState('')
 
-  const onFiles = (files: FileList | null) => {
+  const onFiles = async (files: FileList | null) => {
     if (!files?.length) return
-    const added = [...files].map((f) => ({
-      id: uid('d'),
-      name: f.name,
-      kind,
-      sizeKb: Math.max(1, Math.round(f.size / 1024)),
-      uploadedAt: todayISO(),
-    }))
-    updateClient(client.id, { documents: [...added, ...client.documents] })
+    const picked = [...files]
     if (input.current) input.current.value = ''
+    setProblem('')
+    const doc = (f: File, path?: string): ClientDoc => ({ id: uid('d'), name: f.name, kind, sizeKb: sizeKb(f), uploadedAt: todayISO(), path })
+    if (!LIVE) {
+      updateClient(client.id, { documents: [...picked.map((f) => doc(f)), ...client.documents] })
+      return
+    }
+    setUploading(picked.length)
+    const added: ClientDoc[] = []
+    const errors: string[] = []
+    for (const f of picked) {
+      try {
+        added.push(doc(f, await uploadClientFile(client.id, f)))
+      } catch (e) {
+        errors.push(e instanceof Error ? e.message : String(e))
+      }
+      setUploading((n) => n - 1)
+    }
+    if (added.length) updateClient(client.id, { documents: [...added, ...(latest(client.id)?.documents ?? [])] })
+    if (errors.length) setProblem(errors.join(' '))
+  }
+
+  const open = (d: ClientDoc) => d.path && openClientFile(d.path, d.name).catch((e: Error) => setProblem(e.message))
+
+  const remove = async (d: ClientDoc) => {
+    if (d.path) {
+      if (!window.confirm(`Remove ${d.name}? The file is deleted for everyone.`)) return
+      try {
+        await removeClientFile(d.path)
+      } catch (e) {
+        setProblem(e instanceof Error ? e.message : String(e))
+        return
+      }
+    }
+    updateClient(client.id, { documents: (latest(client.id)?.documents ?? client.documents).filter((x) => x.id !== d.id) })
   }
 
   return (
@@ -462,13 +500,14 @@ function Documents({ client }: { client: Client }) {
                 <option key={k}>{k}</option>
               ))}
             </Select>
-            <Button size="sm" variant="primary" icon={<Upload size={15} />} onClick={() => input.current?.click()}>
-              Upload
+            <Button size="sm" variant="primary" icon={<Upload size={15} />} onClick={() => input.current?.click()} disabled={uploading > 0}>
+              {uploading > 0 ? `Uploading ${uploading}…` : 'Upload'}
             </Button>
-            <input ref={input} type="file" multiple hidden onChange={(e) => onFiles(e.target.files)} />
+            <input ref={input} type="file" multiple hidden onChange={(e) => void onFiles(e.target.files)} />
           </div>
         }
       />
+      {problem && <p className="mx-5 mb-3 rounded-lg bg-rose-50 px-3 py-2 text-[13px] text-rose-700 ring-1 ring-rose-200">{problem}</p>}
       {client.documents.length === 0 ? (
         <Empty icon={<FileText size={20} />} title="No documents yet" hint="Pick a type and upload the client's Aadhaar, PAN or working files." />
       ) : (
@@ -479,17 +518,19 @@ function Documents({ client }: { client: Client }) {
                 {DOC_ICON[d.kind]}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate font-semibold text-ink-800">{d.name}</p>
+                {d.path ? (
+                  <button type="button" onClick={() => void open(d)} className="block max-w-full truncate text-left font-semibold text-brand-700 hover:underline">
+                    {d.name}
+                  </button>
+                ) : (
+                  <p className="truncate font-semibold text-ink-800">{d.name}</p>
+                )}
                 <p className="tnum text-xs text-ink-500">
                   {fileSize(d.sizeKb)} · added {fmtDate(d.uploadedAt, true)}
                 </p>
               </div>
               <Badge>{d.kind}</Badge>
-              <IconButton
-                label={`Remove ${d.name}`}
-                onClick={() => updateClient(client.id, { documents: client.documents.filter((x) => x.id !== d.id) })}
-                className="hover:text-rose-600"
-              >
+              <IconButton label={`Remove ${d.name}`} onClick={() => void remove(d)} className="hover:text-rose-600">
                 <Trash2 size={15} />
               </IconButton>
             </li>
@@ -497,7 +538,9 @@ function Documents({ client }: { client: Client }) {
         </ul>
       )}
       <p className="border-t border-ink-100 px-5 py-3 text-xs text-ink-500">
-        Demo only: the file name and size are recorded, the file itself is not stored anywhere.
+        {LIVE
+          ? `Files are stored privately (up to ${MAX_FILE_MB} MB each). Only signed-in team members can open them.`
+          : 'Demo only: the file name and size are recorded, the file itself is not stored anywhere.'}
       </p>
     </Card>
   )
@@ -662,16 +705,48 @@ function Clarifications({ client }: { client: Client }) {
   const input = useRef<HTMLInputElement>(null)
   const [scope, setScope] = useState<ScopeKey | 'general'>('general')
   const [summary, setSummary] = useState('')
-  const [recording, setRecording] = useState<{ name: string; sizeKb: number }>()
+  // The file is only uploaded when the note is saved, so a note given up on leaves nothing behind.
+  const [recording, setRecording] = useState<File>()
+  const [saving, setSaving] = useState(false)
+  const [problem, setProblem] = useState('')
   const [filter, setFilter] = useState<ScopeKey | 'general' | 'all'>('all')
 
-  const save = () => {
-    if (!summary.trim()) return
-    const entry = { id: uid('q'), scope, at: todayISO(), by: me.id, summary: summary.trim(), recording }
-    updateClient(client.id, { clarifications: [entry, ...client.clarifications] })
+  const save = async () => {
+    if (!summary.trim() || saving) return
+    setProblem('')
+    let rec: Recording | undefined
+    if (recording) {
+      rec = { name: recording.name, sizeKb: sizeKb(recording) }
+      if (LIVE) {
+        setSaving(true)
+        try {
+          rec.path = await uploadClientFile(client.id, recording)
+        } catch (e) {
+          setProblem(e instanceof Error ? e.message : String(e))
+          setSaving(false)
+          return
+        }
+        setSaving(false)
+      }
+    }
+    const entry = { id: uid('q'), scope, at: todayISO(), by: me.id, summary: summary.trim(), recording: rec }
+    updateClient(client.id, { clarifications: [entry, ...(latest(client.id)?.clarifications ?? client.clarifications)] })
     setSummary('')
     setRecording(undefined)
     if (input.current) input.current.value = ''
+  }
+
+  const remove = async (q: Clarification) => {
+    if (q.recording?.path) {
+      if (!window.confirm('Remove this note? Its call recording is deleted for everyone.')) return
+      try {
+        await removeClientFile(q.recording.path)
+      } catch (e) {
+        setProblem(e instanceof Error ? e.message : String(e))
+        return
+      }
+    }
+    updateClient(client.id, { clarifications: (latest(client.id)?.clarifications ?? client.clarifications).filter((x) => x.id !== q.id) })
   }
   const label = (s: ScopeKey | 'general') => (s === 'general' ? 'General' : scopes.label(s))
   const shown = client.clarifications.filter((q) => filter === 'all' || q.scope === filter)
@@ -703,10 +778,7 @@ function Clarifications({ client }: { client: Client }) {
               type="file"
               accept="audio/*"
               hidden
-              onChange={(e) => {
-                const f = e.target.files?.[0]
-                setRecording(f ? { name: f.name, sizeKb: Math.max(1, Math.round(f.size / 1024)) } : undefined)
-              }}
+              onChange={(e) => setRecording(e.target.files?.[0])}
             />
             {recording && (
               <span className="inline-flex min-w-0 items-center gap-1.5 text-[13px] text-ink-600">
@@ -715,10 +787,11 @@ function Clarifications({ client }: { client: Client }) {
               </span>
             )}
           </div>
-          <Button variant="primary" onClick={save} disabled={!summary.trim()} className="w-full">
-            Save clarification
+          {problem && <p className="rounded-lg bg-rose-50 px-3 py-2 text-[13px] text-rose-700 ring-1 ring-rose-200">{problem}</p>}
+          <Button variant="primary" onClick={() => void save()} disabled={!summary.trim() || saving} className="w-full">
+            {saving ? 'Uploading recording…' : 'Save clarification'}
           </Button>
-          <p className="text-xs text-ink-500">Demo only: the recording's name and size are kept, the audio itself is not stored.</p>
+          {!LIVE && <p className="text-xs text-ink-500">Demo only: the recording's name and size are kept, the audio itself is not stored.</p>}
         </div>
       </Card>
 
@@ -755,18 +828,20 @@ function Clarifications({ client }: { client: Client }) {
                     </p>
                     <p className="mt-1 text-sm text-ink-700">{q.summary}</p>
                     {q.recording && (
-                      <p className="mt-2 inline-flex max-w-full items-center gap-2 rounded-lg bg-violet-50 px-2.5 py-1.5 text-[13px] font-medium text-violet-800">
+                      <button
+                        type="button"
+                        disabled={!q.recording.path}
+                        onClick={() => q.recording?.path && void openClientFile(q.recording.path, q.recording.name).catch((e: Error) => setProblem(e.message))}
+                        title={q.recording.path ? 'Play the recording' : undefined}
+                        className="mt-2 inline-flex max-w-full items-center gap-2 rounded-lg bg-violet-50 px-2.5 py-1.5 text-[13px] font-medium text-violet-800 enabled:hover:bg-violet-100 disabled:cursor-default"
+                      >
                         <Mic size={14} className="shrink-0" />
                         <span className="truncate">{q.recording.name}</span>
                         <span className="tnum shrink-0 text-xs text-violet-600">{fileSize(q.recording.sizeKb)}</span>
-                      </p>
+                      </button>
                     )}
                   </div>
-                  <IconButton
-                    label="Remove clarification"
-                    onClick={() => updateClient(client.id, { clarifications: client.clarifications.filter((x) => x.id !== q.id) })}
-                    className="hover:text-rose-600"
-                  >
+                  <IconButton label="Remove clarification" onClick={() => void remove(q)} className="hover:text-rose-600">
                     <Trash2 size={15} />
                   </IconButton>
                 </li>

@@ -5,15 +5,19 @@ import { Avatar, Badge, Button, Card, CardHeader, Empty, Field, IconButton, Inpu
 import { CHECKLISTS, checklistTitle } from '../data/requirements'
 import { cn, fmtDate, todayISO } from '../lib/format'
 import { FIRM_NAME, PERMISSIONS, ROLE_PERMISSIONS, ROLES, TEMPLATES, TRACKERS, fillTemplate } from '../lib/meta'
-import { permissionsOf, useCan, useCurrentUser, useScopes, useStore } from '../store'
+import { LIVE } from '../lib/supabase'
+import { managesLogins, permissionsOf, useCan, useCurrentUser, useScopes, useStore } from '../store'
 import type { Employee, Permission, ScopeDef, TemplateKey, TrackerTab } from '../types'
+import Logins from './SettingsLogins'
 
-type Tab = 'scopes' | 'permissions' | 'messages'
+type Tab = 'scopes' | 'permissions' | 'messages' | 'logins'
 const TABS: Array<{ value: Tab; label: string }> = [
   { value: 'scopes', label: 'Scopes of work' },
   { value: 'permissions', label: 'Permissions' },
   { value: 'messages', label: 'WhatsApp messages' },
 ]
+/** For those allowed to give out logins, on the live system only. */
+const LOGINS_TAB = { value: 'logins' as Tab, label: 'Logins' }
 
 /* ---------- Scopes ---------- */
 
@@ -255,6 +259,10 @@ function Permissions() {
   const [warning, setWarning] = useState('')
   const people = employees.filter((e) => e.active)
   const withSettings = people.filter((e) => permissionsOf(e).includes('settings'))
+  const withLogins = people.filter(managesLogins)
+  // Whoever gives out logins can do everything, so only they pass that on (the database holds to the same).
+  const loginsLocked = (e: Employee, next: Permission[]) => next.includes('manage_logins') !== permissionsOf(e).includes('manage_logins') && !managesLogins(me)
+  const LOCKED = 'Only people allowed to give out logins can give or take away that permission.'
 
   const toggle = (e: Employee, p: Permission) => {
     const now = permissionsOf(e)
@@ -262,6 +270,10 @@ function Permissions() {
     // Settings must stay open to someone, and to whoever is making the change.
     if (on && p === 'settings' && e.id === me.id) return setWarning('You cannot take away your own access to Settings. Someone else with access can.')
     if (on && p === 'settings' && withSettings.length <= 1) return setWarning('At least one person has to keep access to Settings.')
+    // The same for giving out logins.
+    if (p === 'manage_logins' && !managesLogins(me)) return setWarning(LOCKED)
+    if (on && p === 'manage_logins' && e.id === me.id) return setWarning('You cannot take away your own permission to give out logins. Someone else who has it can.')
+    if (on && p === 'manage_logins' && withLogins.length <= 1) return setWarning('At least one person has to keep the permission to give out logins.')
     setWarning('')
     const next = on ? now.filter((x) => x !== p) : [...now, p]
     // Back to matching the role exactly means back to following it.
@@ -331,7 +343,13 @@ function Permissions() {
                     })}
                     <Td className="text-right @max-3xl:absolute @max-3xl:top-3 @max-3xl:right-3">
                       {e.permissions && (
-                        <Button size="sm" variant="ghost" icon={<RotateCcw size={13} />} onClick={() => setPermissions(e.id, undefined)} title={`Go back to what a ${ROLES[e.role].label.toLowerCase()} gets`}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          icon={<RotateCcw size={13} />}
+                          onClick={() => (loginsLocked(e, ROLE_PERMISSIONS[e.role]) ? setWarning(LOCKED) : setPermissions(e.id, undefined))}
+                          title={`Go back to what a ${ROLES[e.role].label.toLowerCase()} gets`}
+                        >
                           Reset
                         </Button>
                       )}
@@ -498,24 +516,28 @@ function Messages() {
 export default function Settings() {
   const { tab } = useParams()
   const navigate = useNavigate()
-  const allowed = useCan()('settings')
-  if (!allowed)
+  const can = useCan()
+  const me = useCurrentUser()
+  // Someone may give out logins without the rest of Settings, or the other way round.
+  const tabs = [...(can('settings') ? TABS : []), ...(LIVE && managesLogins(me) ? [LOGINS_TAB] : [])]
+  if (!tabs.length)
     return (
       <Card>
         <Empty icon={<Lock size={20} />} title="Settings are locked" hint="Scopes, permissions and message templates are changed by those given access to Settings." />
       </Card>
     )
-  if (!TABS.some((t) => t.value === tab)) return <Navigate to="/settings/scopes" replace />
+  if (!tabs.some((t) => t.value === tab)) return <Navigate to={`/settings/${tabs[0].value}`} replace />
 
   return (
     <>
       <PageHeader title="Settings" subtitle="Scopes of work, who can do what, and the wording of WhatsApp messages. Changes apply straight away." />
       <div className="mb-4">
-        <Segmented value={tab as Tab} onChange={(t) => navigate(`/settings/${t}`)} items={TABS} />
+        <Segmented value={tab as Tab} onChange={(t) => navigate(`/settings/${t}`)} items={tabs} />
       </div>
       {tab === 'scopes' && <Scopes />}
       {tab === 'permissions' && <Permissions />}
       {tab === 'messages' && <Messages />}
+      {tab === 'logins' && <Logins />}
     </>
   )
 }
