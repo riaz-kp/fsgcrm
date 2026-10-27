@@ -39,7 +39,7 @@ import { addDays, cn, daysUntil, fmtDate, fmtTime, relDue, todayISO } from '../l
 import { DEPARTMENTS, ROLES } from '../lib/meta'
 import { LIVE } from '../lib/supabase'
 import { dismissSyncError, useSyncStatus } from '../lib/sync'
-import { can, useCan, useCurrentUser, useDueReminders, useLookup, useStore, useVisibleTasks } from '../store'
+import { birthdayOf, can, useCan, useCurrentUser, useDueReminders, useLookup, useStore, useVisibleTasks } from '../store'
 import { useAccount } from '../lib/account'
 import { Avatar, Badge, Button, IconButton } from './ui'
 
@@ -347,7 +347,7 @@ function Reminders() {
         })
       }
     for (const e of employees) {
-      if (e.dob?.slice(5) !== today.slice(5)) continue
+      if (birthdayOf(e) !== today.slice(5)) continue
       out.push({
         key: `b-${e.id}`,
         title: e.id === me.id ? 'Happy birthday!' : `It's ${e.name}'s birthday today`,

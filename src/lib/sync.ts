@@ -42,11 +42,26 @@ interface ListDef {
   apart?: Record<string, unknown>
   /** Fields only the database changes; never sent from here. */
   readOnly?: string[]
+  /** The columns to read, where not every column may be read by everyone. */
+  columns?: string
+  /** Fields the table keeps from people not allowed to see them: read through `employee_details` instead, and kept as they are when a row comes in without them. */
+  hidden?: string[]
 }
 
 const LISTS: ListDef[] = [
   // Logins are given out through the staff-logins function, never by editing a team member.
-  { key: 'employees', table: 'employees', noun: 'team member', pk: 'id', dates: ['joined', 'dob'], readOnly: ['username', 'hasLogin'] },
+  // Personal and family details are for the person and for those allowed to see colleagues' details: the rest of
+  // the team cannot read those columns, and gets the day and month of birth as `birthday` instead.
+  {
+    key: 'employees',
+    table: 'employees',
+    noun: 'team member',
+    pk: 'id',
+    dates: ['joined', 'dob'],
+    readOnly: ['username', 'hasLogin', 'birthday'],
+    columns: 'seq, id, name, title, role, reports_to, responsibilities, phone, email, hue, active, joined, photo, permissions, origin, updated_at, username, has_login, birthday',
+    hidden: ['dob', 'address', 'bloodGroup', 'qualification', 'family'],
+  },
   { key: 'scopes', table: 'scopes', noun: 'scope', pk: 'key', rename: { group: 'scope_group' } },
   { key: 'clients', table: 'clients', noun: 'client', pk: 'id', newestFirst: true, dates: ['since'], apart: { credentials: [] } },
   { key: 'leads', table: 'leads', noun: 'lead', pk: 'id', newestFirst: true, dates: ['nextFollowUp', 'createdAt'] },
@@ -110,6 +125,7 @@ function fromRow(def: ListDef, row: Row, existing?: Item): Item {
   const item: Item = {}
   for (const [col, v] of Object.entries(row)) if (!META.has(col) && v !== null && v !== undefined) item[back[col] ?? camel(col)] = v
   for (const [f, empty] of Object.entries(def.apart ?? {})) item[f] = existing?.[f] ?? empty
+  for (const f of def.hidden ?? []) if (!(f in item) && existing?.[f] !== undefined) item[f] = existing[f]
   return item
 }
 
@@ -325,14 +341,15 @@ function refused(op: Op, why: string) {
 async function restore(op: Op) {
   const db = supabase!
   if (op.kind === 'logins') return refreshLogins(op.clientId)
-  const { data } = await db.from(op.table).select('*').match(op.match).maybeSingle()
   const def = LIST_BY_TABLE.get(op.table)
+  const { data } = await db.from(op.table).select(def?.columns ?? '*').match(op.match).maybeSingle()
   remote(() => {
     if (def) {
-      if (data) putItem(def, data as Row)
+      if (data) putItem(def, data as unknown as Row)
       else dropItem(def, op.match[def.pk] as string)
     } else putMapRow(op.table, op.match, data as Row | null)
   })
+  if (op.table === 'employees') void refreshDetails(op.match.id as string)
 }
 
 /* ---------- Spotting what changed in the store ---------- */
@@ -466,8 +483,51 @@ function putMapRow(table: string, match: Row, row: Row | null) {
 /** Show one record as the database has it now, after something changed it there (the staff-logins function, say). */
 export async function reloadRecord(key: ListKey, id: string) {
   const def = LISTS.find((d) => d.key === key)!
-  const { data } = await supabase!.from(def.table).select('*').eq(def.pk, id).maybeSingle()
-  remote(() => (data ? putItem(def, data as Row) : dropItem(def, id)))
+  const { data } = await supabase!.from(def.table).select(def.columns ?? '*').eq(def.pk, id).maybeSingle()
+  remote(() => (data ? putItem(def, data as unknown as Row) : dropItem(def, id)))
+}
+
+const EMPLOYEES = LISTS.find((d) => d.key === 'employees')!
+
+/** Personal and family details as the app keeps them, from a row of employee_details. */
+function detailsFrom(row: Row): Item {
+  const item: Item = {}
+  for (const f of EMPLOYEES.hidden!) if (row[snake(f)] != null) item[f] = row[snake(f)]
+  return item
+}
+
+function withDetails<T extends object>(e: T, details: Item | undefined): T {
+  const next = { ...e } as Item
+  for (const f of EMPLOYEES.hidden!) delete next[f]
+  return { ...next, ...details } as T
+}
+
+const detailTimers = new Map<string, number>()
+
+/**
+ * Fetch personal and family details again: one person's after their record changed, or everyone's (`id`
+ * left out) after the signed-in person's own record changed, since what they may see may have changed with it.
+ */
+async function refreshDetails(id?: string) {
+  const { data, error } = await supabase!.rpc('employee_details', id ? { p_id: id } : {})
+  if (error) return
+  const byId = new Map(((data ?? []) as Row[]).map((r) => [r.id as string, detailsFrom(r)]))
+  remote(() =>
+    useStore.setState((s) => ({
+      employees: s.employees.map((e) => {
+        if (pending.has(`employees:${e.id}`) || inflight.has(`employees:${e.id}`)) return e
+        // Asked about one person and told nothing: this person may not see them, and has nothing to clear.
+        if (id && (e.id !== id || !byId.has(id))) return e
+        return withDetails(e, byId.get(e.id))
+      }),
+    })),
+  )
+}
+
+function scheduleDetails(id?: string) {
+  const k = id ?? '*'
+  window.clearTimeout(detailTimers.get(k))
+  detailTimers.set(k, window.setTimeout(() => void refreshDetails(id), 150))
 }
 
 const loginTimers = new Map<string, number>()
@@ -497,6 +557,7 @@ function onRemoteChange(p: RealtimePostgresChangesPayload<Row>) {
     return
   }
   const def = LIST_BY_TABLE.get(p.table)
+  if (p.table === 'employees' && row) scheduleDetails(keys.id === useStore.getState().currentUserId ? undefined : (keys.id as string))
   remote(() => {
     if (def) {
       if (row) putItem(def, row)
@@ -510,30 +571,34 @@ function onRemoteChange(p: RealtimePostgresChangesPayload<Row>) {
 
 /* ---------- Loading everything ---------- */
 
-async function fetchAll(table: string, order: Array<[string, boolean]>): Promise<Row[]> {
+async function fetchAll(table: string, order: Array<[string, boolean]>, columns = '*'): Promise<Row[]> {
   const db = supabase!
   const out: Row[] = []
   // The API hands back at most a thousand rows at a time.
   for (let from = 0; ; from += PAGE) {
-    let q = db.from(table).select('*')
+    let q = db.from(table).select(columns)
     for (const [col, ascending] of order) q = q.order(col, { ascending })
     const { data, error } = await q.range(from, from + PAGE - 1)
     if (error) throw new Error(`Could not load ${table}: ${error.message}`)
-    out.push(...(data as Row[]))
+    out.push(...(data as unknown as Row[]))
     if (data.length < PAGE) return out
   }
 }
 
 async function loadAll(): Promise<SeedData> {
   const db = supabase!
-  const [lists, attendance, offDays, templates, logins, secrets] = await Promise.all([
-    Promise.all(LISTS.map((def) => fetchAll(def.table, [['seq', !def.newestFirst]]))),
+  const [lists, attendance, offDays, templates, logins, secrets, details] = await Promise.all([
+    Promise.all(LISTS.map((def) => fetchAll(def.table, [['seq', !def.newestFirst]], def.columns))),
     fetchAll('attendance', [['employee_id', true], ['date', true]]),
     fetchAll('off_days', [['date', true]]),
     fetchAll('templates', [['key', true]]),
     fetchAll('client_logins', [['client_id', true], ['position', true], ['portal', true]]),
     db.rpc('client_login_passwords').then(({ data, error }) => {
       if (error) throw new Error(`Could not load portal passwords: ${error.message}`)
+      return (data ?? []) as Row[]
+    }),
+    db.rpc('employee_details').then(({ data, error }) => {
+      if (error) throw new Error(`Could not load team details: ${error.message}`)
       return (data ?? []) as Row[]
     }),
   ])
@@ -551,6 +616,8 @@ async function loadAll(): Promise<SeedData> {
     byClient.get(id)!.push({ portal: r.portal as Portal, username: r.username as string, password: pw.get(`${id}:${r.portal}`) ?? '' })
   }
   data.clients = data.clients.map((c) => ({ ...c, credentials: byClient.get(c.id) ?? [] }))
+  const personal = new Map(details.map((r) => [r.id as string, detailsFrom(r)]))
+  data.employees = data.employees.map((e) => ({ ...e, ...personal.get(e.id) }))
 
   for (const r of attendance) ((data.attendance[r.employee_id as string] ??= {})[r.date as string] = attendanceEntry(r))
   for (const r of offDays) data.offDays[r.date as string] = r.name as string

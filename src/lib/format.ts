@@ -191,9 +191,10 @@ export function tenure(joined: string): string {
 }
 
 /** Days until the next occurrence of a birthday (0 = today). */
+/** Days until the next birthday, from a date of birth or just its day and month (MM-DD). */
 export function daysToBirthday(dob: string): number {
   const today = parseISO(todayISO())
-  const [, m, d] = dob.split('-').map(Number)
+  const [m, d] = dob.split('-').slice(-2).map(Number)
   const next = new Date(today.getFullYear(), m - 1, d)
   if (next < today) next.setFullYear(today.getFullYear() + 1)
   return Math.round((next.getTime() - today.getTime()) / 86_400_000)

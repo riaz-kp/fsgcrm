@@ -24,8 +24,10 @@ export interface Employee {
   hue: number
   active: boolean
   joined?: string
-  /** Age is worked out from this, never stored. */
+  /** Age is worked out from this, never stored. Only the person and those allowed to see colleagues' details have it. */
   dob?: string
+  /** Day and month of birth (MM-DD), which the whole team sees. Filled in by the database; see `birthdayOf`. */
+  birthday?: string
   address?: string
   bloodGroup?: BloodGroup
   qualification?: string

@@ -10,7 +10,7 @@ import { offDayName, timing } from '../lib/attendance'
 import { ageFrom, currentGstPeriod, daysUntil, fmtDate, periodLabel, tenure, todayISO } from '../lib/format'
 import { workEntries } from '../lib/history'
 import { ATTENDANCE, ROLES, TASK_STATUS } from '../lib/meta'
-import { can, useCan, useCurrentUser, useLookup, useStore, useVisibleTasks } from '../store'
+import { can, canSeeProfile, useCan, useCurrentUser, useLookup, useStore, useVisibleTasks } from '../store'
 import type { Employee } from '../types'
 
 type Tab = 'profile' | 'work' | 'attendance'
@@ -94,8 +94,8 @@ function Profile({ emp, onEdit }: { emp: Employee; onEdit?: () => void }) {
   const f = emp.family ?? {}
   const personal = [emp.dob, emp.address, emp.phone, emp.email, emp.bloodGroup, emp.qualification, emp.joined]
   const family = [f.fatherName, f.fatherOccupation, f.motherName, f.motherOccupation, f.fatherPhone, f.siblings]
-  // Only those who edit the team can change these, so anyone else is told who to ask.
-  const added = (list: Array<string | undefined>) => `${list.filter(Boolean).length} of ${list.length} added${onEdit ? '' : ' · ask a head to update them'}`
+  // The person and those who edit the team can change these, so anyone else is told who to ask.
+  const added = (list: Array<string | undefined>) => `${list.filter(Boolean).length} of ${list.length} added${onEdit ? '' : ` · ${emp.name} or a head can update them`}`
   const edit = onEdit && (
     <Button size="sm" icon={<Pencil size={14} />} onClick={onEdit}>
       Edit
@@ -306,9 +306,10 @@ export default function EmployeeDetail() {
       </Card>
     )
   }
-  // Personal details, work and attendance are for those allowed to see colleagues' details, and for the person themself.
-  const full = allowed('view_team') || emp.id === me.id
-  const canEdit = allowed('edit_team')
+  // Personal details, work and attendance are for those allowed to see colleagues' details, and for the person themself,
+  // who may also keep their own personal and family details up to date.
+  const full = canSeeProfile(me, emp)
+  const canEdit = allowed('edit_team') || emp.id === me.id
   const manager = employees.find((e) => e.id === emp.reportsTo)
 
   return (
@@ -369,7 +370,7 @@ export default function EmployeeDetail() {
           <AtTheFirm emp={emp} contact />
           <p className="flex items-start gap-2 px-1 text-[13px] text-ink-500">
             <Lock size={14} className="mt-0.5 shrink-0" />
-            Personal and family details, work and attendance are shown to {emp.name} and to those given access in Settings.
+            Personal and family details, work and attendance are shown only to {emp.name} and to those given access in Settings → Permissions.
           </p>
         </div>
       )}

@@ -380,6 +380,16 @@ export function permissionsOf(e: Employee): Permission[] {
   return e.permissions ?? ROLE_PERMISSIONS[e.role]
 }
 
+/** Day and month of birth (MM-DD), for birthday wishes. Everyone has this for everyone, even where the full date is kept from them. */
+export function birthdayOf(e: Employee): string | undefined {
+  return e.dob?.slice(5) ?? e.birthday
+}
+
+/** Everyone sees and edits their own personal and family details; other people's are for those given access in Settings. */
+export function canSeeProfile(me: Employee, e: Employee): boolean {
+  return e.id === me.id || can(me, 'view_team')
+}
+
 /** Giving out logins, and making someone admin or CEO. The admin and the CEO have it to start with; the database holds to the same. */
 export function managesLogins(e: Employee): boolean {
   return permissionsOf(e).includes('manage_logins')

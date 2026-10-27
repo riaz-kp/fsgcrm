@@ -216,8 +216,18 @@ export const PERMISSIONS: Array<{ key: Permission; label: string; short: string;
   { key: 'view_fees', label: 'See fees & payments', short: 'Fees', hint: 'Sees fees, payments and balances in the trackers, on client pages and on the dashboard.' },
   { key: 'consultations', label: "CEO's consultations", short: 'Consults', hint: "Opens the CEO's consultation diary to schedule, postpone or close appointments." },
   { key: 'manage_attendance', label: 'Keep attendance', short: 'Attendance', hint: 'Marks attendance and time in and out for everyone. Without it a person sees only their own.' },
-  { key: 'view_team', label: "See colleagues' details", short: 'Team', hint: "Sees everyone's personal and family details, work and attendance, not only their own." },
-  { key: 'edit_team', label: 'Add & edit team', short: 'Edit team', hint: 'Adds team members and edits their profile, role and reporting line.' },
+  {
+    key: 'view_team',
+    label: "See colleagues' details",
+    short: 'Team',
+    hint: "Sees everyone's personal and family details, work and attendance. Without it a person sees only their own, and of colleagues just their role, contact and birthday.",
+  },
+  {
+    key: 'edit_team',
+    label: 'Add & edit team',
+    short: 'Edit team',
+    hint: "Adds team members and edits anyone's profile, role and reporting line. Without it a person edits only their own photo, personal and family details.",
+  },
   { key: 'settings', label: 'Change settings', short: 'Settings', hint: 'Changes scopes, permissions and message templates in Settings.' },
   {
     key: 'manage_logins',

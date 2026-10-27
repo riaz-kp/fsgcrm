@@ -3,14 +3,15 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import EmployeeForm from '../components/EmployeeForm'
 import { Avatar, Badge, Button, Card, IconButton, PageHeader, Progress } from '../components/ui'
-import { cn, daysToBirthday, daysUntil, fmtDate, parseISO, telHref, tenure } from '../lib/format'
+import { cn, daysToBirthday, daysUntil, fmtDate, telHref, tenure } from '../lib/format'
 import { ROLES } from '../lib/meta'
-import { isHead, useCan, useCurrentUser, useStore } from '../store'
+import { birthdayOf, canSeeProfile, isHead, useCan, useCurrentUser, useStore } from '../store'
 import type { Employee } from '../types'
 
-function birthdayLabel(dob: string): string {
-  // Day and month only: the year is for the person's own page, which only heads and they can open in full.
-  return parseISO(dob).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+function birthdayLabel(birthday: string): string {
+  // Day and month only: the year is for the person's own page, which only they and those given access can open in full.
+  const [m, d] = birthday.split('-').map(Number)
+  return new Date(2000, m - 1, d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
 }
 
 interface Stats {
@@ -21,7 +22,8 @@ interface Stats {
 }
 
 function MemberCard({ e, stats, manager, max, onEdit }: { e: Employee; stats?: Stats; manager?: Employee; max: number; onEdit?: () => void }) {
-  const birthdayIn = e.dob ? daysToBirthday(e.dob) : undefined
+  const birthday = birthdayOf(e)
+  const birthdayIn = birthday ? daysToBirthday(birthday) : undefined
   return (
     <Card className="flex flex-col p-4">
       <div className="flex items-start gap-3">
@@ -56,11 +58,11 @@ function MemberCard({ e, stats, manager, max, onEdit }: { e: Employee; stats?: S
           <Cake size={14} className={birthdayIn === 0 ? 'text-amber-600' : 'text-ink-400'} />
           <dt className="sr-only">Birthday</dt>
           <dd>
-            {!e.dob
+            {!birthday
               ? 'Birthday not added'
               : birthdayIn === 0
                 ? 'Birthday today. Wish them!'
-                : `Birthday ${birthdayLabel(e.dob)}${birthdayIn !== undefined && birthdayIn <= 14 ? ` · in ${birthdayIn} days` : ''}`}
+                : `Birthday ${birthdayLabel(birthday)}${birthdayIn !== undefined && birthdayIn <= 14 ? ` · in ${birthdayIn} days` : ''}`}
           </dd>
         </div>
       </dl>
@@ -143,8 +145,8 @@ export default function Team() {
   const birthdays = useMemo(
     () =>
       employees
-        .filter((e) => e.dob)
-        .map((e) => ({ e, days: daysToBirthday(e.dob!) }))
+        .filter((e) => birthdayOf(e))
+        .map((e) => ({ e, days: daysToBirthday(birthdayOf(e)!) }))
         .filter((b) => b.days <= 30)
         .sort((a, b) => a.days - b.days),
     [employees],
@@ -180,7 +182,7 @@ export default function Team() {
             <span key={e.id} className="flex items-center gap-2 text-[13px]">
               <Avatar name={e.name} hue={e.hue} photo={e.photo} size={22} />
               <span className="font-semibold text-ink-800">{e.name}</span>
-              <Badge tone={days === 0 ? 'amber' : 'neutral'}>{days === 0 ? 'Today' : `${birthdayLabel(e.dob!)} · ${days}d`}</Badge>
+              <Badge tone={days === 0 ? 'amber' : 'neutral'}>{days === 0 ? 'Today' : `${birthdayLabel(birthdayOf(e)!)} · ${days}d`}</Badge>
             </span>
           ))}
         </Card>
@@ -198,10 +200,10 @@ export default function Team() {
                 key={e.id}
                 e={e}
                 // Workload goes with seeing colleagues' details; everyone else sees their own.
-                stats={can('view_team') || e.id === me.id ? stats.get(e.id) : undefined}
+                stats={canSeeProfile(me, e) ? stats.get(e.id) : undefined}
                 manager={employees.find((x) => x.id === e.reportsTo)}
                 max={max}
-                onEdit={can('edit_team') ? () => setEditing(e) : undefined}
+                onEdit={can('edit_team') || e.id === me.id ? () => setEditing(e) : undefined}
               />
             ))}
           </div>

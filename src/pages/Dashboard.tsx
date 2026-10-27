@@ -6,7 +6,7 @@ import { Avatar, Badge, Button, Card, CardHeader, Empty, Progress, TONE_BAR } fr
 import { statutoryDeadlines } from '../lib/deadlines'
 import { addDays, cn, currentGstPeriod, daysUntil, fmtDate, fmtWeekday, fmtTime, greeting, inr, longToday, periodLabel, todayISO } from '../lib/format'
 import { DEPARTMENTS, LEAD_STATUS, LEAD_STATUS_ORDER, PRIORITIES, TASK_STATUS, TASK_STATUS_ORDER } from '../lib/meta'
-import { can, useCurrentUser, useLookup, useStore, useVisibleTasks } from '../store'
+import { birthdayOf, can, useCurrentUser, useLookup, useStore, useVisibleTasks } from '../store'
 import type { Task } from '../types'
 
 function GstProgress() {
@@ -258,7 +258,7 @@ function Birthdays() {
   const me = useCurrentUser()
   const employees = useStore((s) => s.employees)
   const today = todayISO().slice(5)
-  const people = employees.filter((e) => e.dob?.slice(5) === today)
+  const people = employees.filter((e) => birthdayOf(e) === today)
   if (people.length === 0) return null
   const mine = people.some((e) => e.id === me.id)
   const others = people.filter((e) => e.id !== me.id).map((e) => e.name)

@@ -3,7 +3,7 @@ import { useRef, useState, type ReactNode } from 'react'
 import { ageFrom, cn, todayISO } from '../lib/format'
 import { BLOOD_GROUPS, ROLES, options } from '../lib/meta'
 import { LIVE } from '../lib/supabase'
-import { isHead, managesLogins, useCurrentUser, useStore } from '../store'
+import { isHead, managesLogins, useCan, useCurrentUser, useStore } from '../store'
 import type { BloodGroup, Employee, FamilyDetails, Role } from '../types'
 import { Avatar, Button, Field, Input, Modal, Select, Textarea } from './ui'
 
@@ -44,6 +44,9 @@ export default function EmployeeForm({ employee, onClose }: { employee?: Employe
   const updateEmployee = useStore((s) => s.updateEmployee)
   const employees = useStore((s) => s.employees)
   const me = useCurrentUser()
+  const can = useCan()
+  // Everyone keeps their own personal and family details up to date; the rest is for those who edit the team.
+  const own = !!employee && !can('edit_team')
   // Only the admin or the CEO makes someone admin or CEO, or changes the role of someone who is.
   const mayGiveTopRoles = managesLogins(me)
   const topRoleLocked = !mayGiveTopRoles && !!employee && TOP_ROLES.includes(employee.role)
@@ -90,7 +93,21 @@ export default function EmployeeForm({ employee, onClose }: { employee?: Employe
     for (const k of ['fatherName', 'fatherOccupation', 'fatherPhone', 'motherName', 'motherOccupation', 'siblings'] as const) {
       if (f[k].trim()) family[k] = f[k].trim()
     }
+    const personal = {
+      phone: f.phone.trim(),
+      dob: f.dob || undefined,
+      address: f.address.trim() || undefined,
+      bloodGroup: f.bloodGroup || undefined,
+      qualification: f.qualification.trim() || undefined,
+      family: Object.keys(family).length ? family : undefined,
+      photo: f.photo || undefined,
+    }
+    if (own) {
+      updateEmployee(employee.id, personal)
+      return onClose()
+    }
     const data = {
+      ...personal,
       name: f.name.trim(),
       title: f.title.trim() || ROLES[f.role].label,
       role: f.role,
@@ -99,15 +116,8 @@ export default function EmployeeForm({ employee, onClose }: { employee?: Employe
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean),
-      phone: f.phone.trim(),
       email: f.email.trim(),
       joined: f.joined || undefined,
-      dob: f.dob || undefined,
-      address: f.address.trim() || undefined,
-      bloodGroup: f.bloodGroup || undefined,
-      qualification: f.qualification.trim() || undefined,
-      family: Object.keys(family).length ? family : undefined,
-      photo: f.photo || undefined,
     }
     if (employee) updateEmployee(employee.id, data)
     else addEmployee(data)
@@ -117,7 +127,7 @@ export default function EmployeeForm({ employee, onClose }: { employee?: Employe
   return (
     <Modal
       wide
-      title={employee ? `Edit ${employee.name}` : 'Add team member'}
+      title={own ? 'Edit your details' : employee ? `Edit ${employee.name}` : 'Add team member'}
       onClose={onClose}
       footer={
         <>
@@ -148,53 +158,61 @@ export default function EmployeeForm({ employee, onClose }: { employee?: Employe
         </div>
       </div>
 
-      <Section title="At the firm">
-        <Field label="Name">
-          <Input value={f.name} onChange={(e) => set('name', e.target.value)} autoFocus={!employee} />
-        </Field>
-        <Field label="Designation">
-          <Input value={f.title} onChange={(e) => set('title', e.target.value)} />
-        </Field>
-        <Field label="Role" hint={topRoleLocked ? 'Only the admin or the CEO can change this' : undefined}>
-          <Select value={f.role} onChange={(e) => set('role', e.target.value as Role)} disabled={topRoleLocked}>
-            {options(ROLES)
-              .filter((r) => mayGiveTopRoles || !TOP_ROLES.includes(r.value) || r.value === employee?.role)
-              .map((r) => (
-                <option key={r.value} value={r.value}>
-                  {r.label}
-                </option>
-              ))}
-          </Select>
-        </Field>
-        <Field label="Reports to">
-          <Select value={f.reportsTo} onChange={(e) => set('reportsTo', e.target.value)}>
-            <option value="">No one</option>
-            {employees
-              .filter((e) => isHead(e) && e.id !== employee?.id)
-              .map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.name}
-                </option>
-              ))}
-          </Select>
-        </Field>
-        <Field label="Usually works on" hint="comma separated" className="sm:col-span-2">
-          <Input value={f.responsibilities} onChange={(e) => set('responsibilities', e.target.value)} placeholder="GST filing, book keeping" />
-        </Field>
-      </Section>
+      {own && (
+        <p className="mb-4 rounded-lg bg-ink-50 px-3 py-2 text-[13px] text-ink-600">
+          You can update your photo, personal and family details. Your name, designation, role, joining date and email are changed by those who edit the team.
+        </p>
+      )}
+
+      {!own && (
+        <Section title="At the firm">
+          <Field label="Name">
+            <Input value={f.name} onChange={(e) => set('name', e.target.value)} autoFocus={!employee} />
+          </Field>
+          <Field label="Designation">
+            <Input value={f.title} onChange={(e) => set('title', e.target.value)} />
+          </Field>
+          <Field label="Role" hint={topRoleLocked ? 'Only the admin or the CEO can change this' : undefined}>
+            <Select value={f.role} onChange={(e) => set('role', e.target.value as Role)} disabled={topRoleLocked}>
+              {options(ROLES)
+                .filter((r) => mayGiveTopRoles || !TOP_ROLES.includes(r.value) || r.value === employee?.role)
+                .map((r) => (
+                  <option key={r.value} value={r.value}>
+                    {r.label}
+                  </option>
+                ))}
+            </Select>
+          </Field>
+          <Field label="Reports to">
+            <Select value={f.reportsTo} onChange={(e) => set('reportsTo', e.target.value)}>
+              <option value="">No one</option>
+              {employees
+                .filter((e) => isHead(e) && e.id !== employee?.id)
+                .map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.name}
+                  </option>
+                ))}
+            </Select>
+          </Field>
+          <Field label="Usually works on" hint="comma separated" className="sm:col-span-2">
+            <Input value={f.responsibilities} onChange={(e) => set('responsibilities', e.target.value)} placeholder="GST filing, book keeping" />
+          </Field>
+        </Section>
+      )}
 
       <Section title="Personal details">
         <Field label="Date of birth" hint={f.dob ? `${ageFrom(f.dob)} years old` : 'age is worked out'}>
           <Input type="date" value={f.dob} max={todayISO()} onChange={(e) => set('dob', e.target.value)} />
         </Field>
         <Field label="Date of joining">
-          <Input type="date" value={f.joined} max={todayISO()} onChange={(e) => set('joined', e.target.value)} />
+          <Input type="date" value={f.joined} max={todayISO()} onChange={(e) => set('joined', e.target.value)} disabled={own} />
         </Field>
         <Field label="Mobile number">
           <Input value={f.phone} onChange={(e) => set('phone', e.target.value)} inputMode="tel" />
         </Field>
         <Field label="Mail ID" hint={LIVE ? 'They sign up and sign in with this email' : undefined}>
-          <Input value={f.email} onChange={(e) => set('email', e.target.value)} type="email" />
+          <Input value={f.email} onChange={(e) => set('email', e.target.value)} type="email" disabled={own} />
         </Field>
         <Field label="Blood group">
           <Select value={f.bloodGroup} onChange={(e) => set('bloodGroup', e.target.value as BloodGroup | '')}>
