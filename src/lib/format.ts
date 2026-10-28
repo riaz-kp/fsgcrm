@@ -116,6 +116,33 @@ export function fileSize(kb: number): string {
   return kb >= 1024 ? `${(kb / 1024).toFixed(kb >= 10_240 ? 0 : 1)} MB` : `${Math.round(kb)} KB`
 }
 
+/** A pasted address as a link that is safe to open: web pages only, with "drive.google.com/…" given its https:// back. */
+export function webLink(text?: string): URL | undefined {
+  const t = text?.trim()
+  if (!t) return
+  try {
+    // Letters before a colon are a scheme, except in "site.com:8080", where a port follows.
+    const url = new URL(/^[a-z][a-z\d+.-]*:(?!\d)/i.test(t) ? t : `https://${t}`)
+    return (url.protocol === 'https:' || url.protocol === 'http:') && url.hostname.includes('.') ? url : undefined
+  } catch {
+    return
+  }
+}
+
+/** The site a link opens on, without the www. */
+export const linkSite = (url: URL) => url.hostname.replace(/^www\./, '')
+
+const GOOGLE_DOCS: Record<string, string> = { spreadsheets: 'Google Sheet', document: 'Google Doc', presentation: 'Google Slides' }
+
+/** A name for a link saved without one: the kind of Google file it is, or else its site. */
+export function linkLabel(url: URL): string {
+  const site = linkSite(url)
+  const path = url.pathname
+  if (site === 'drive.google.com') return path.includes('/folders/') ? 'Google Drive folder' : path.startsWith('/file/') ? 'Google Drive file' : 'Google Drive'
+  if (site === 'docs.google.com') return GOOGLE_DOCS[path.split('/')[1]] ?? 'Google Docs'
+  return site
+}
+
 export function initials(name: string): string {
   const words = name
     .replace(/^(Dr|Mr|Mrs|Ms)\.?\s+/i, '')

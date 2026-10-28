@@ -123,16 +123,21 @@ export interface ClientDoc {
   id: string
   name: string
   kind: DocKind
-  sizeKb: number
+  /** Unset for a link. */
+  sizeKb?: number
   uploadedAt: string
   /** Where the file is in storage. Unset on sample data, where only the name and size are kept. */
   path?: string
+  /** A link pasted in place of an upload, such as a Google Drive folder. The file stays where it is. */
+  url?: string
 }
 
 export interface Recording {
   name: string
-  sizeKb: number
+  sizeKb?: number
   path?: string
+  /** A link to where the recording is already kept, in place of an upload. */
+  url?: string
 }
 
 export interface Client {
