@@ -162,6 +162,32 @@ The app adapts from a phone to a wide monitor:
 - **Everything else** — page headers, filters, forms and dialogs wrap or stack as the screen narrows.
   On touch screens form fields use 16px text so iOS does not zoom in when one is tapped.
 
+## Installing it as an app
+
+The app is a Progressive Web App, so the team can install it and open it from the home screen,
+dock or Start menu in its own window:
+
+- **Android** — in Chrome, menu (⋮) → **Install app** (or **Add to Home screen**).
+- **iPhone and iPad** — in Safari, Share → **Add to Home Screen**.
+- **Windows and Mac** — in Chrome or Edge, the install icon at the right of the address bar.
+
+The menu under your name at the bottom of the sidebar also has **Install app**: in Chrome and Edge it
+opens the browser's install prompt, and on an iPhone or iPad it says where Add to Home Screen is. It
+does not show once the app is installed, or in browsers that cannot install it.
+
+A service worker keeps the app's own files on the device, so it opens at once and opens without a
+connection. The firm's data does not stay on the device: signing in and loading the work need the
+internet. If loading fails because the device is offline, the app says so and tries again by itself
+when the connection is back. Responses from Supabase (data, sign-in, client files) are never cached.
+
+After a new deploy, a message says **A new version of Practice Manager is ready**, with **Reload**.
+It waits while changes are being saved and is not shown offline. Until someone reloads, they keep
+the version they have; closing every window of the app also brings in the new one.
+
+The service worker only runs in a build: try it with `npm run build` and `npm run preview`, not
+`npm run dev`. The setup is `VitePWA` in `vite.config.ts` (name, colours, which files are kept);
+the icons in `public/` are made from `logo-mark.jpeg`.
+
 ## Where things live
 
 - `supabase/migrations/` — the database: tables, access rules, starting data
@@ -169,6 +195,7 @@ The app adapts from a phone to a wide monitor:
 - `src/lib/sync.ts` — loads the firm's data, saves changes, applies other people's changes
 - `src/lib/files.ts` — client documents and call recordings in Storage
 - `src/components/AuthGate.tsx`, `src/pages/SignIn.tsx` — signing in with a username
+- `vite.config.ts` (`VitePWA`), `src/lib/install.ts`, `src/components/UpdatePrompt.tsx` — installing as an app, and the "new version" message
 - `src/pages/SettingsLogins.tsx`, `src/lib/logins.ts`, `supabase/functions/staff-logins/` — giving out logins
 - `src/data/seed.ts` — sample data, used only without a database. Staff names are real; every client and login is invented
 - `src/store.ts` — app state and actions

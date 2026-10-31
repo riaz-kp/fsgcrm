@@ -11,6 +11,7 @@ import {
   CloudCheck,
   CloudOff,
   CloudUpload,
+  Download,
   FileCheck2,
   Landmark,
   LayoutDashboard,
@@ -25,6 +26,7 @@ import {
   ScrollText,
   Search,
   Settings,
+  Share,
   Stamp,
   Target,
   UserPlus,
@@ -36,6 +38,7 @@ import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from '
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { statutoryDeadlines } from '../lib/deadlines'
 import { addDays, cn, daysUntil, fmtDate, fmtTime, relDue, todayISO } from '../lib/format'
+import { install, installsFromShareMenu, useInstall } from '../lib/install'
 import { DEPARTMENTS, ROLES } from '../lib/meta'
 import { LIVE } from '../lib/supabase'
 import { dismissSyncError, useSyncStatus } from '../lib/sync'
@@ -114,6 +117,33 @@ function NavHeading({ children }: { children: ReactNode }) {
   )
 }
 
+/** "Install app" where the browser offers it (Chrome, Edge); on an iPhone or iPad, where to find Add to Home Screen. */
+function InstallItem({ onDone }: { onDone: () => void }) {
+  const canPrompt = useInstall((s) => s.canPrompt)
+  const [steps, setSteps] = useState(false)
+  if (!canPrompt && !installsFromShareMenu()) return null
+  if (steps)
+    return (
+      <p className="border-t border-ink-100 px-3 py-2.5 text-xs leading-relaxed text-ink-600">
+        Open the Share menu <Share size={12} className="inline align-[-1px]" /> (it may be under ···), then tap <strong>Add to Home Screen</strong>.
+      </p>
+    )
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (canPrompt) {
+          install()
+          onDone()
+        } else setSteps(true)
+      }}
+      className="flex w-full items-center gap-2 border-t border-ink-100 px-3 py-2.5 text-[13px] font-semibold text-ink-600 hover:bg-ink-50"
+    >
+      <Download size={14} /> Install app
+    </button>
+  )
+}
+
 /** Live: who is signed in, their profile and signing out. */
 function AccountMenu({ onClose }: { onClose: () => void }) {
   const me = useCurrentUser()
@@ -136,6 +166,7 @@ function AccountMenu({ onClose }: { onClose: () => void }) {
       >
         <UserRound size={14} /> My profile
       </button>
+      <InstallItem onDone={onClose} />
       <button
         type="button"
         onClick={() => {
@@ -189,6 +220,7 @@ function UserSwitcher() {
               </li>
             ))}
           </ul>
+          <InstallItem onDone={() => setOpen(false)} />
           <button
             type="button"
             onClick={() => {

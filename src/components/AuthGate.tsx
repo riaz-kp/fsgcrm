@@ -86,6 +86,22 @@ function LiveGate({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe()
   }, [load])
 
+  const retry = useCallback(
+    (session: Session) => {
+      loadedFor.current = session.user.id
+      void load(session)
+    },
+    [load],
+  )
+
+  // The installed app also opens with no connection: then it loads by itself once the connection is back.
+  useEffect(() => {
+    if (phase.at !== 'failed') return
+    const again = () => retry(phase.session)
+    window.addEventListener('online', again)
+    return () => window.removeEventListener('online', again)
+  }, [phase, retry])
+
   const signOut = useCallback(async () => {
     if (useSyncStatus.getState().saving && !window.confirm('Some changes are still being saved. Sign out anyway? Anything not saved yet will be lost.')) return
     setPhase({ at: 'leaving' })
@@ -116,19 +132,15 @@ function LiveGate({ children }: { children: ReactNode }) {
           </Button>
         </Screen>
       )
-    case 'failed':
+    case 'failed': {
+      const offline = !navigator.onLine
       return (
-        <Screen title="Could not load the firm's work" subtitle={phase.message}>
+        <Screen
+          title={offline ? 'No internet connection' : "Could not load the firm's work"}
+          subtitle={offline ? "The firm's work loads as soon as this device is back online." : phase.message}
+        >
           <div className="flex gap-2">
-            <Button
-              variant="primary"
-              icon={<RotateCcw size={16} />}
-              className="flex-1"
-              onClick={() => {
-                loadedFor.current = phase.session.user.id
-                void load(phase.session)
-              }}
-            >
+            <Button variant="primary" icon={<RotateCcw size={16} />} className="flex-1" onClick={() => retry(phase.session)}>
               Try again
             </Button>
             <Button onClick={() => void signOut()} icon={<LogOut size={16} />}>
@@ -137,6 +149,7 @@ function LiveGate({ children }: { children: ReactNode }) {
           </div>
         </Screen>
       )
+    }
     case 'ready':
       return <AccountContext.Provider value={account}>{children}</AccountContext.Provider>
   }
