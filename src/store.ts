@@ -33,6 +33,8 @@ interface Actions {
 
   addClient: (c: Omit<Client, 'id' | 'code' | 'since' | 'requirementsSent' | 'clarifications' | 'transactions' | 'dscs'>) => string
   updateClient: (id: string, patch: Partial<Client>) => void
+  /** Link a client with others ("in association with"), on both sides; clients left out of `ids` are unlinked. */
+  setAssociates: (id: string, ids: string[]) => void
 
   addLead: (l: Omit<Lead, 'id' | 'createdAt' | 'remarks'>, note?: string) => string
   updateLead: (id: string, patch: Partial<Lead>) => void
@@ -164,6 +166,22 @@ export const useStore = create<State>()(
         return id
       },
       updateClient: (id, patch) => set((s) => ({ clients: patchIn(s.clients, id, patch) })),
+      setAssociates: (id, ids) =>
+        set((s) => {
+          const want = new Set(ids.filter((x) => x !== id))
+          const same = (a: string[] | undefined, b: string[]) => (a ?? []).length === b.length && b.every((x) => a?.includes(x))
+          return {
+            clients: s.clients.map((c) => {
+              if (c.id === id) {
+                const next = [...want]
+                return same(c.associates, next) ? c : { ...c, associates: next }
+              }
+              const has = !!c.associates?.includes(id)
+              if (want.has(c.id) === has) return c
+              return { ...c, associates: want.has(c.id) ? [...(c.associates ?? []), id] : (c.associates ?? []).filter((x) => x !== id) }
+            }),
+          }
+        }),
 
       addLead: (l, note) => {
         const id = uid('l')

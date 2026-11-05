@@ -1,6 +1,7 @@
-import { Eye, EyeOff, X } from 'lucide-react'
+import { ChevronDown, Eye, EyeOff, X } from 'lucide-react'
 import { useEffect, useState, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type ComponentProps, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react'
 import { cn, initials } from '../lib/format'
+import { useDismiss } from '../lib/useDismiss'
 import type { Tone } from '../lib/meta'
 import type { Employee } from '../types'
 
@@ -123,13 +124,13 @@ export function Avatar({ name, hue = 212, size = 28, square, photo }: { name: st
     )
   return (
     <span
-      className={cn('inline-flex shrink-0 items-center justify-center font-bold select-none', square ? 'rounded-[22%]' : 'rounded-full')}
+      className={cn('avatar inline-flex shrink-0 items-center justify-center font-bold select-none', square ? 'rounded-[22%]' : 'rounded-full')}
       style={{
         width: size,
         height: size,
         fontSize: Math.max(10, size * 0.38),
-        background: `hsl(${hue} 70% 93%)`,
-        color: `hsl(${hue} 55% 32%)`,
+        // Pastel on light, deep on dark: see .avatar in index.css.
+        ['--hue' as string]: hue,
       }}
       title={name}
     >
@@ -192,7 +193,7 @@ export function Modal({ title, subtitle, onClose, children, footer, wide }: { ti
   useEscape(onClose)
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6">
-      <div className="absolute inset-0 animate-fade-in bg-ink-900/40" onClick={onClose} />
+      <div className="absolute inset-0 animate-fade-in bg-black/40 dark:bg-black/60" onClick={onClose} />
       <div
         role="dialog"
         aria-modal="true"
@@ -222,7 +223,7 @@ export function Drawer({ onClose, children, label }: { onClose: () => void; chil
   useEscape(onClose)
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 animate-fade-in bg-ink-900/30" onClick={onClose} />
+      <div className="absolute inset-0 animate-fade-in bg-black/30 dark:bg-black/60" onClick={onClose} />
       <aside
         role="dialog"
         aria-modal="true"
@@ -429,5 +430,51 @@ export function Td({ children, className, label }: { children?: ReactNode; class
     <td data-label={label} className={cn('px-3 py-2.5 align-middle first:pl-5 last:pr-5', className)}>
       {children}
     </td>
+  )
+}
+
+/* ---------- Menus ---------- */
+
+export interface MenuItem {
+  label: ReactNode
+  hint?: ReactNode
+  icon?: ReactNode
+  onClick: () => void
+}
+
+/** A button that opens a short list of actions, such as what to export. */
+export function MenuButton({ label, icon, items, size, align = 'right', className }: { label: ReactNode; icon?: ReactNode; items: Array<MenuItem | false>; size?: 'sm' | 'md'; align?: 'left' | 'right'; className?: string }) {
+  const [open, setOpen] = useState(false)
+  const ref = useDismiss(open, () => setOpen(false))
+  const list = items.filter((i): i is MenuItem => !!i)
+  return (
+    <div ref={ref} className={cn('relative', className)}>
+      <Button size={size} icon={icon} onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-haspopup="menu" className="w-full">
+        {label}
+        <ChevronDown size={14} className="-mr-1 text-ink-400" />
+      </Button>
+      {open && (
+        <div role="menu" className={cn('absolute top-full z-30 mt-1.5 w-72 max-w-[calc(100vw-2rem)] animate-pop-in overflow-hidden rounded-xl bg-white py-1 shadow-pop ring-1 ring-ink-200', align === 'right' ? 'left-0 sm:right-0 sm:left-auto' : 'left-0')}>
+          {list.map((item, i) => (
+            <button
+              key={i}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false)
+                item.onClick()
+              }}
+              className="flex w-full items-start gap-2.5 px-3 py-2 text-left hover:bg-ink-50"
+            >
+              {item.icon && <span className="mt-0.5 shrink-0 text-ink-500">{item.icon}</span>}
+              <span className="min-w-0">
+                <span className="block text-[13px] font-semibold text-ink-800">{item.label}</span>
+                {item.hint && <span className="block text-xs text-ink-500">{item.hint}</span>}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }

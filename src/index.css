@@ -63,6 +63,116 @@
   }
 }
 
+/*
+ * Dark theme. `data-theme` on <html> is set by public/theme.js before the page paints and by lib/theme.ts after.
+ * The screens are written once, for light: here the same colour names get dark values. Neutrals turn over (ink-50
+ * is the darkest, ink-900 the lightest), "white" becomes the card surface, the 50-200 tints become deep washes and
+ * the 700-900 text shades become light ones. Solid 500-600 fills stay bright, with dark text on them (`text-white`
+ * is the surface colour here). `dark:` is for the few places that need something else.
+ */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --color-white: #171a1e;
+
+  --color-ink-50: #0f1114;
+  --color-ink-100: #1f2227;
+  --color-ink-200: #2b2f36;
+  --color-ink-300: #3e434c;
+  --color-ink-400: #666d78;
+  --color-ink-500: #8f96a1;
+  --color-ink-600: #adb3bc;
+  --color-ink-700: #c6cbd2;
+  --color-ink-800: #dcdfe4;
+  --color-ink-900: #eef0f3;
+
+  --color-brand-50: #0e1d2e;
+  --color-brand-100: #13283f;
+  --color-brand-200: #1c3b5c;
+  --color-brand-300: #2a5784;
+  --color-brand-400: #3b79b6;
+  --color-brand-500: #4f97dc;
+  --color-brand-600: #5aa3e8;
+  --color-brand-700: #82bcf2;
+  --color-brand-800: #a9d1f7;
+  --color-brand-900: #cfe5fb;
+
+  --color-emerald-50: #0b2219;
+  --color-emerald-100: #0f2e22;
+  --color-emerald-200: #174734;
+  --color-emerald-300: #1f6b4c;
+  --color-emerald-400: #2f9a6c;
+  --color-emerald-500: #3fb985;
+  --color-emerald-600: #4cc792;
+  --color-emerald-700: #6fdcab;
+  --color-emerald-800: #97e8c3;
+  --color-emerald-900: #c2f2dc;
+
+  --color-amber-50: #2a1d08;
+  --color-amber-100: #38270b;
+  --color-amber-200: #553b10;
+  --color-amber-300: #7d5715;
+  --color-amber-400: #b07a1a;
+  --color-amber-500: #e09b25;
+  --color-amber-600: #efad3e;
+  --color-amber-700: #f6c35f;
+  --color-amber-800: #f9d386;
+  --color-amber-900: #fce6b6;
+
+  --color-rose-50: #2c1116;
+  --color-rose-100: #3a161d;
+  --color-rose-200: #5a2029;
+  --color-rose-300: #84303d;
+  --color-rose-400: #c04a5c;
+  --color-rose-500: #e45d72;
+  --color-rose-600: #ef7186;
+  --color-rose-700: #f594a5;
+  --color-rose-800: #f8b5c1;
+  --color-rose-900: #fbd6dd;
+
+  --color-violet-50: #1c1630;
+  --color-violet-100: #251d40;
+  --color-violet-200: #382b61;
+  --color-violet-300: #533f8f;
+  --color-violet-400: #7a62c4;
+  --color-violet-500: #9179e0;
+  --color-violet-600: #a08bea;
+  --color-violet-700: #b9a8f2;
+  --color-violet-800: #d0c4f7;
+  --color-violet-900: #e6defb;
+
+  --color-teal-50: #0a2224;
+  --color-teal-100: #0e2e31;
+  --color-teal-200: #154649;
+  --color-teal-300: #1e676b;
+  --color-teal-400: #2b979c;
+  --color-teal-500: #39b6bb;
+  --color-teal-600: #4cc4c8;
+  --color-teal-700: #73d8db;
+  --color-teal-800: #9de6e8;
+  --color-teal-900: #c8f2f3;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.35);
+  --shadow-pop: 0 12px 32px -8px rgb(0 0 0 / 0.65), 0 2px 6px rgb(0 0 0 / 0.4);
+}
+
+.theme-switch,
+.theme-switch * {
+  transition: none !important;
+}
+
+/* Initials in a circle, tinted by the person's hue. */
+.avatar {
+  background: hsl(var(--hue) 70% 93%);
+  color: hsl(var(--hue) 55% 32%);
+}
+[data-theme='dark'] .avatar {
+  background: hsl(var(--hue) 32% 24%);
+  color: hsl(var(--hue) 70% 82%);
+}
+
 @layer base {
   html {
     -webkit-font-smoothing: antialiased;

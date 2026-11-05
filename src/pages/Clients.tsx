@@ -1,9 +1,10 @@
-import { Building2, Plus, Search } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Building2, Download, FileSpreadsheet, KeyRound, Link2, Plus, Search } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { PhoneLink, ScopeChips, WhatsAppLink } from '../components/bits'
 import ClientForm from '../components/ClientForm'
-import { Avatar, Badge, Button, Card, Empty, PageHeader, Segmented, Select, Td, Th } from '../components/ui'
+import { Avatar, Badge, Button, Card, Empty, MenuButton, PageHeader, Segmented, Select, Td, Th } from '../components/ui'
+import { associatesOf, balanceOf, clientSheet, downloadSheets, loginSheet, useExportContext } from '../lib/exports'
 import { cn, inr } from '../lib/format'
 import { CATEGORIES, CATEGORY_TONE } from '../lib/meta'
 import { useStoredState } from '../lib/useStoredState'
@@ -12,7 +13,6 @@ import type { Client, ClientCategory, ScopeKey } from '../types'
 
 type StatusFilter = 'active' | 'inactive' | 'all'
 
-const balanceOf = (c: Client) => c.transactions.reduce((sum, x) => sum + (x.kind === 'charge' ? x.amount : -x.amount), 0)
 const byName = (a: Client, b: Client) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' })
 
 const SORTS = {
@@ -38,10 +38,33 @@ export default function Clients() {
   const [q, setQ] = useState('')
   const [category, setCategory] = useState<ClientCategory | ''>('')
   const [scope, setScope] = useState<ScopeKey | ''>('')
-  const [status, setStatus] = useState<StatusFilter>('active')
+  // The dashboard links here with `?status=` and `?sort=`.
+  const [status, setStatus] = useState<StatusFilter>(() => (['active', 'inactive', 'all'] as const).find((v) => v === params.get('status')) ?? 'active')
   const [stored, setSort] = useStoredState<SortKey>('fsg-clients-sort', 'name', isSort)
+  const asked = params.get('sort')
+  useEffect(() => {
+    if (!isSort(asked)) return
+    setSort(asked)
+    setParams(
+      (p) => {
+        p.delete('sort')
+        return p
+      },
+      { replace: true },
+    )
+  }, [asked, setSort, setParams])
   // Sorting by balance is only on offer to people who may see fees.
   const sort: SortKey = stored === 'balance' && !can('view_fees') ? 'name' : stored
+
+  // Names of the clients each one goes with, for the list and for searching.
+  const linked = useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const c of clients) {
+      const names = associatesOf(c, clients).map((a) => a.name)
+      if (names.length) map.set(c.id, names)
+    }
+    return map
+  }, [clients])
 
   const rows = useMemo(() => {
     const term = q.trim().toLowerCase()
@@ -58,6 +81,8 @@ export default function Clients() {
   }, [clients, q, category, scope, status, sort])
 
   const activeCount = clients.filter((c) => c.active).length
+  const x = useExportContext()
+  const withLogins = rows.filter((c) => c.credentials.length > 0)
 
   return (
     <>
@@ -65,11 +90,31 @@ export default function Clients() {
         title="Clients"
         subtitle={`${activeCount} active · ${clients.length - activeCount} inactive`}
         actions={
-          can('edit_clients') && (
-            <Button variant="primary" icon={<Plus size={16} />} onClick={() => setParams({ new: '1' })}>
-              Add client
-            </Button>
-          )
+          <>
+            <MenuButton
+              label="Export"
+              icon={<Download size={16} />}
+              items={[
+                {
+                  label: 'Client list',
+                  hint: `The ${rows.length} clients shown, with the filters and sort applied`,
+                  icon: <FileSpreadsheet size={15} />,
+                  onClick: () => downloadSheets('FSG clients', [clientSheet(x, rows)]),
+                },
+                can('view_logins') && {
+                  label: 'Portal logins',
+                  hint: `${withLogins.reduce((n, c) => n + c.credentials.length, 0)} logins of the clients shown, with passwords. Keep the file safe.`,
+                  icon: <KeyRound size={15} />,
+                  onClick: () => downloadSheets('FSG portal logins', [loginSheet(x, withLogins)]),
+                },
+              ]}
+            />
+            {can('edit_clients') && (
+              <Button variant="primary" icon={<Plus size={16} />} onClick={() => setParams({ new: '1' })}>
+                Add client
+              </Button>
+            )}
+          </>
         }
       />
 
@@ -171,6 +216,12 @@ export default function Clients() {
                           <p className="truncate text-xs text-ink-500">
                             <span className="tnum">{c.code}</span>
                             {c.contactPerson && ` · ${c.contactPerson}`}
+                            {linked.get(c.id) && (
+                              <span title={`In association with ${linked.get(c.id)!.join(', ')}`}>
+                                {' · '}
+                                <Link2 size={12} className="inline align-[-2px]" /> {linked.get(c.id)!.length}
+                              </span>
+                            )}
                           </p>
                         </div>
                       </div>

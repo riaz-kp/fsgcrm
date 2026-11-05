@@ -1,5 +1,6 @@
 import { MessageCircle, Phone, Repeat } from 'lucide-react'
 import type { MouseEvent, ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { cn, daysUntil, fmtDate, relDue, telHref, whatsappHref } from '../lib/format'
 import { useScopes } from '../store'
 import type { Recurrence, ScopeKey } from '../types'
@@ -105,21 +106,30 @@ export function RecurringTag({ every }: { every?: Recurrence }) {
   )
 }
 
-export function StatCard({ label, value, sub, icon, tone = 'blue' }: { label: string; value: ReactNode; sub?: ReactNode; icon: ReactNode; tone?: 'blue' | 'amber' | 'green' | 'violet' }) {
+/** A figure on the dashboard. With `to`, the whole card opens the list it counts. */
+export function StatCard({ label, value, sub, icon, tone = 'blue', to }: { label: string; value: ReactNode; sub?: ReactNode; icon: ReactNode; tone?: 'blue' | 'amber' | 'green' | 'violet'; to?: string }) {
   const tones = {
     blue: 'bg-brand-50 text-brand-600',
     amber: 'bg-amber-50 text-amber-600',
     green: 'bg-emerald-50 text-emerald-600',
     violet: 'bg-violet-50 text-violet-600',
   }
-  return (
-    <div className="rounded-xl bg-white p-4 shadow-card ring-1 ring-ink-200/80">
+  const body = (
+    <>
       <div className="flex items-start justify-between gap-3">
         <p className="text-[13px] font-semibold text-ink-500">{label}</p>
         <span className={cn('flex size-8 items-center justify-center rounded-lg', tones[tone])}>{icon}</span>
       </div>
       <p className="tnum mt-1 text-[26px] leading-none font-extrabold tracking-tight text-ink-900">{value}</p>
       {sub && <p className="mt-2 text-[13px] text-ink-500">{sub}</p>}
-    </div>
+    </>
+  )
+  const box = 'rounded-xl bg-white p-4 shadow-card ring-1 ring-ink-200/80'
+  return to ? (
+    <Link to={to} className={cn(box, 'block transition-shadow hover:shadow-pop hover:ring-brand-300')}>
+      {body}
+    </Link>
+  ) : (
+    <div className={box}>{body}</div>
   )
 }

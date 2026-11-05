@@ -5,7 +5,7 @@ import { Due, StatCard } from '../components/bits'
 import { Avatar, Badge, Button, Card, CardHeader, Empty, Progress, TONE_BAR } from '../components/ui'
 import { statutoryDeadlines } from '../lib/deadlines'
 import { addDays, cn, currentGstPeriod, daysUntil, fmtDate, fmtWeekday, fmtTime, greeting, inr, longToday, periodLabel, todayISO } from '../lib/format'
-import { DEPARTMENTS, LEAD_STATUS, LEAD_STATUS_ORDER, PRIORITIES, TASK_STATUS, TASK_STATUS_ORDER } from '../lib/meta'
+import { DEPARTMENTS, LEAD_STATUS, LEAD_STATUS_ORDER, PRIORITIES, TASK_STATUS, TASK_STATUS_ORDER, TRACKERS } from '../lib/meta'
 import { birthdayOf, can, useCurrentUser, useLookup, useStore, useVisibleTasks } from '../store'
 import type { Task } from '../types'
 
@@ -38,7 +38,7 @@ function GstProgress() {
         {returns.map((r) => {
           const n = done(r.key)
           return (
-            <div key={r.key}>
+            <Link key={r.key} to={`/filings/gst?view=${r.key}`} className="-m-2 rounded-lg p-2 transition-colors hover:bg-ink-50">
               <div className="flex items-baseline justify-between">
                 <p className="font-bold text-ink-800">{r.label}</p>
                 <p className="tnum text-[13px] text-ink-500">
@@ -52,7 +52,7 @@ function GstProgress() {
                   {daysUntil(r.cutoff) >= 0 ? `${daysUntil(r.cutoff)} days left` : 'cut-off passed'}
                 </span>
               </p>
-            </div>
+            </Link>
           )
         })}
       </div>
@@ -133,31 +133,32 @@ function WorkQueue() {
   )
 }
 
-/** Due today and the count in each status, for the tasks this person can see. */
+/** Due today and the count in each status, for the tasks this person can see. Each opens those tasks. */
 function TodayStrip() {
   const tasks = useVisibleTasks()
   const dueToday = tasks.filter((t) => t.status !== 'completed' && daysUntil(t.dueDate) === 0).length
   const tiles = [
-    { label: 'Due today', value: dueToday, dot: 'bg-rose-500', strong: true },
+    { label: 'Due today', value: dueToday, dot: 'bg-rose-500', strong: true, to: '/tasks?due=today' },
     ...TASK_STATUS_ORDER.map((s) => ({
       label: TASK_STATUS[s].label,
       value: tasks.filter((t) => t.status === s).length,
       dot: TONE_BAR[TASK_STATUS[s].tone],
       strong: false,
+      to: `/tasks?status=${s}`,
     })),
   ]
   return (
-    <Link to="/tasks" className="mt-3 grid grid-cols-2 overflow-hidden rounded-xl bg-white shadow-card ring-1 ring-ink-200/80 sm:grid-cols-5 sm:divide-x sm:divide-ink-100">
+    <div className="mt-3 grid grid-cols-2 overflow-hidden rounded-xl bg-white shadow-card ring-1 ring-ink-200/80 sm:grid-cols-5 sm:divide-x sm:divide-ink-100">
       {tiles.map((t) => (
-        <div key={t.label} className={cn('px-4 py-3', t.strong && 'col-span-2 bg-brand-50/60 sm:col-span-1')}>
+        <Link key={t.label} to={t.to} className={cn('px-4 py-3 transition-colors hover:bg-ink-50', t.strong && 'col-span-2 bg-brand-50/60 hover:bg-brand-50 sm:col-span-1')}>
           <p className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-500">
             <span className={cn('size-2 rounded-full', t.dot)} />
             {t.label}
           </p>
           <p className="tnum mt-0.5 text-2xl leading-tight font-extrabold text-ink-900">{t.value}</p>
-        </div>
+        </Link>
       ))}
-    </Link>
+    </div>
   )
 }
 
@@ -300,7 +301,8 @@ function Deadlines() {
         {items.map((d) => {
           const n = daysUntil(d.internalDate ?? d.date)
           return (
-            <li key={d.id} className="flex items-center gap-3 px-5 py-2.5">
+            <li key={d.id}>
+              <Link to={d.dept in TRACKERS ? `/filings/${d.dept}` : '/calendar'} className="flex items-center gap-3 px-5 py-2.5 hover:bg-ink-50">
               <div className="w-11 shrink-0 rounded-lg bg-ink-50 py-1 text-center ring-1 ring-ink-200/70">
                 <p className="text-[10px] font-bold tracking-wide text-ink-500 uppercase">{fmtWeekday(d.date)}</p>
                 <p className="tnum text-[15px] leading-tight font-extrabold text-ink-900">{Number(d.date.slice(8))}</p>
@@ -319,6 +321,7 @@ function Deadlines() {
                 </p>
               </div>
               <Badge tone={n <= 3 ? 'red' : n <= 10 ? 'amber' : 'neutral'}>{n === 0 ? 'Today' : `${n}d`}</Badge>
+              </Link>
             </li>
           )
         })}
@@ -376,16 +379,19 @@ function LeadPipeline() {
       />
       <div className="grid grid-cols-4 gap-2 px-5">
         {LEAD_STATUS_ORDER.map((s) => (
-          <div key={s} className="rounded-lg bg-ink-50 px-2 py-2.5 text-center">
+          <Link key={s} to={`/leads?status=${s}`} className="rounded-lg bg-ink-50 px-2 py-2.5 text-center transition-colors hover:bg-brand-50 hover:ring-1 hover:ring-brand-200">
             <p className="tnum text-xl leading-none font-extrabold text-ink-900">{leads.filter((l) => l.status === s).length}</p>
             <p className="mt-1.5 truncate text-[11px] font-semibold text-ink-500">{s === 'new' ? 'New' : LEAD_STATUS[s].label}</p>
-          </div>
+          </Link>
         ))}
       </div>
       <p className="px-5 pt-3 pb-4 text-[13px] text-ink-500">
         {dueToday.length > 0 ? (
           <>
-            <span className="font-bold text-amber-700">{dueToday.length} follow-ups</span> due today or overdue:{' '}
+            <Link to="/leads?followup=due" className="font-bold text-amber-700 hover:underline">
+              {dueToday.length} follow-ups
+            </Link>{' '}
+            due today or overdue:{' '}
             {dueToday.map((l) => l.name).join(', ')}
           </>
         ) : (
@@ -442,11 +448,13 @@ export default function Dashboard() {
           value={active}
           sub={`${clients.length - active} inactive`}
           icon={<Building2 size={17} />}
+          to="/clients"
         />
         <StatCard
           label={head ? 'Open tasks' : 'My open tasks'}
           value={scoped.length}
           tone="violet"
+          to={overdue > 0 ? '/tasks?due=late' : '/tasks'}
           sub={
             <>
               {overdue > 0 ? <span className="font-semibold text-rose-600">{overdue} overdue</span> : 'None overdue'}
@@ -455,9 +463,9 @@ export default function Dashboard() {
           }
           icon={<ListTodo size={17} />}
         />
-        <StatCard label="Open leads" value={openLeads} tone="amber" sub={`${leads.filter((l) => l.status === 'won').length} won so far`} icon={<Target size={17} />} />
+        <StatCard label="Open leads" value={openLeads} tone="amber" sub={`${leads.filter((l) => l.status === 'won').length} won so far`} icon={<Target size={17} />} to="/leads" />
         {head && can(me, 'view_fees') ? (
-          <StatCard label="Fees outstanding" value={inr(outstanding)} tone="green" sub="Receivable across all clients" icon={<IndianRupee size={17} />} />
+          <StatCard label="Fees outstanding" value={inr(outstanding)} tone="green" sub="Receivable across all clients" icon={<IndianRupee size={17} />} to="/clients?sort=balance&status=all" />
         ) : (
           <StatCard
             label="Completed"
@@ -465,6 +473,7 @@ export default function Dashboard() {
             tone="green"
             sub="Tasks approved by your head"
             icon={<CheckCircle2 size={17} />}
+            to="/tasks?status=completed"
           />
         )}
       </div>

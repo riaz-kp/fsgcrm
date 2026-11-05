@@ -27,6 +27,7 @@ import {
   ShieldCheck,
   Trash2,
   UserRound,
+  UsersRound,
   Undo2,
   Upload,
   X,
@@ -40,6 +41,7 @@ import StatusMessage from '../components/StatusMessage'
 import WorkHistory from '../components/WorkHistory'
 import { Avatar, Badge, Button, Card, CardHeader, Empty, Field, IconButton, Input, Modal, PasswordInput, Person, Progress, Segmented, Select, Switch, Td, Textarea, Th } from '../components/ui'
 import { DSC_NOTICE_DAYS, dscState } from '../lib/dsc'
+import { associatesOf } from '../lib/exports'
 import { statutoryDeadlines } from '../lib/deadlines'
 import { workEntries } from '../lib/history'
 import { addDays, cn, currentGstPeriod, daysUntil, fileSize, fmtDate, inr, linkLabel, linkSite, periodLabel, todayISO, uid, webLink } from '../lib/format'
@@ -60,6 +62,8 @@ const SCOPE_CHIP =
 
 function Overview({ client, onEdit, onOpenWork }: { client: Client; onEdit?: () => void; onOpenWork: () => void }) {
   const updateClient = useStore((s) => s.updateClient)
+  const clients = useStore((s) => s.clients)
+  const associates = useMemo(() => associatesOf(client, clients), [client, clients])
   const scopes = useScopes()
   const mine = scopes.list.filter((s) => client.scopes.includes(s.key))
   const groups = scopes.groups.filter((g) => mine.some((s) => s.group === g))
@@ -87,6 +91,17 @@ function Overview({ client, onEdit, onOpenWork }: { client: Client; onEdit?: () 
           {client.category !== 'Individual' && (
             <Detail label="Contact person" icon={<UserRound size={14} />}>
               {client.contactPerson}
+            </Detail>
+          )}
+          {associates.length > 0 && (
+            <Detail label="In association with" icon={<UsersRound size={14} />}>
+              <span className="flex flex-col items-start gap-0.5">
+                {associates.map((a) => (
+                  <Link key={a.id} to={`/clients/${a.id}`} className="text-brand-700 hover:underline">
+                    {a.name} <span className="tnum text-xs font-normal text-ink-500">{a.code}</span>
+                  </Link>
+                ))}
+              </span>
             </Detail>
           )}
           {client.profession && <Detail label="Profession">{client.profession}</Detail>}

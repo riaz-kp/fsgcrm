@@ -175,6 +175,11 @@ export interface Client {
   gstFrequency?: 'M' | 'Q'
   /** Who to speak to at a business; individuals are spoken to themselves. */
   contactPerson?: string
+  /**
+   * Other clients this one goes with: the same person's other businesses, each kept as a client of its own.
+   * A link is mutual, and kept on both clients (see `setAssociates`).
+   */
+  associates?: string[]
   active: boolean
   scopes: ScopeKey[]
   /** Which certificate, what "other" means, and so on. */

@@ -1,9 +1,10 @@
-import { Check, Inbox, MessageCircle, Plus, Search, SearchX, X } from 'lucide-react'
+import { Check, Download, Inbox, MessageCircle, Plus, Search, SearchX, X } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { Due } from '../components/bits'
 import { Badge, Button, Card, Empty, Field, IconButton, Input, LinkButton, Modal, PageHeader, Segmented, Select, StatusSelect, Td, Textarea, Th } from '../components/ui'
 import { gstr1Due, itDueDate } from '../lib/deadlines'
+import { auditSheet, downloadSheets, gstSheet, itSheet, serviceSheet, tdsSheet, useExportContext } from '../lib/exports'
 import { addDays, cn, currentGstPeriod, financialYear, fmtDate, inr, parseISO, periodLabel, shiftPeriod, todayISO, whatsappHref } from '../lib/format'
 import { FIRM_NAME, GST_DATA_TYPES, GST_STATUS, SERVICE_KINDS, SIMPLE_STATUS, fillTemplate, options, type Tone, type TrackerTab } from '../lib/meta'
 import { greetingFor } from '../lib/statusMessage'
@@ -322,7 +323,8 @@ function NoMatch({ onClear }: { onClear: () => void }) {
   return <Empty icon={<SearchX size={20} />} title="Nothing matches these filters" hint="Try a different search, or clear the filters to see every row." action={<Button onClick={onClear}>Clear filters</Button>} />
 }
 
-function Footer({ shown, total, dirty, onClear, children }: { shown: number; total: number; dirty: boolean; onClear: () => void; children?: ReactNode }) {
+/** `onExport` saves the rows shown, filters and all, as an Excel file. */
+function Footer({ shown, total, dirty, onClear, onExport, children }: { shown: number; total: number; dirty: boolean; onClear: () => void; onExport?: () => void; children?: ReactNode }) {
   return (
     <p className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-ink-100 px-5 py-2.5 text-xs text-ink-500">
       <span className="tnum font-semibold text-ink-600">
@@ -331,6 +333,11 @@ function Footer({ shown, total, dirty, onClear, children }: { shown: number; tot
       {dirty && (
         <button type="button" onClick={onClear} className="font-semibold text-brand-700 hover:underline">
           Clear filters
+        </button>
+      )}
+      {onExport && shown > 0 && (
+        <button type="button" onClick={onExport} className="inline-flex items-center gap-1 font-semibold text-brand-700 hover:underline">
+          <Download size={13} /> Export to Excel
         </button>
       )}
       {children && <span className="min-w-0 sm:ml-auto">{children}</span>}
@@ -472,10 +479,12 @@ function GstTracker() {
   const clients = useClientMap()
   const fees = useCan()('view_fees')
   const f = useFilters()
+  const x = useExportContext()
   const current = currentGstPeriod()
   const periods = useMemo(() => [...new Set([current, ...gst.map((g) => g.period)])].sort().reverse(), [gst, current])
   const [period, setPeriod] = useState(current)
-  const [view, setView] = useState<GstView | ''>('')
+  // The dashboard opens this on what is left to file: `?view=gstr1` or `?view=gstr3b`.
+  const [view, setView] = useState<GstView | ''>(() => GST_VIEWS.find((v) => v.value === new URLSearchParams(location.search).get('view'))?.value ?? '')
   const [freq, setFreq] = useState<'M' | 'Q' | ''>('')
   const [dataType, setDataType] = useState<GstDataType | ''>('')
   const [owing, setOwing] = useState(false)
@@ -679,7 +688,7 @@ function GstTracker() {
           })}
         </TableShell>
       )}
-      <Footer shown={rows.length} total={all.length} dirty={dirty} onClear={clear}>
+      <Footer shown={rows.length} total={all.length} dirty={dirty} onClear={clear} onExport={() => downloadSheets(`FSG GST ${periodLabel(period)}`, [gstSheet(x, rows)])}>
         Data in, statuses{fees && ', fees received'} and remarks save as you change them. Marking the data in moves a return waiting for it to To begin. The WhatsApp button beside Mark in reminds the client to send it.
       </Footer>
       {reminding && <DataReminders rows={reminding} onClose={() => setReminding(undefined)} />}
@@ -703,6 +712,7 @@ function TdsTracker() {
   const clients = useClientMap()
   const fees = useCan()('view_fees')
   const f = useFilters()
+  const x = useExportContext()
   const current = currentGstPeriod()
   const months = useMemo(() => [...new Set([current, ...tds.flatMap((t) => Object.keys(t.payments))])].sort().reverse(), [tds, current])
   const [month, setMonth] = useState(current)
@@ -888,7 +898,7 @@ function TdsTracker() {
           })}
         </TableShell>
       )}
-      <Footer shown={rows.length} total={inYear.length} dirty={dirty} onClear={clear}>
+      <Footer shown={rows.length} total={inYear.length} dirty={dirty} onClear={clear} onExport={() => downloadSheets(`FSG TDS ${fy}`, [tdsSheet(x, rows, fy)])}>
         FY {fy} · deduction details and payment every month, return every quarter{fees && ' · the fee is what has been billed this year so far'}. Income tax and TRACES logins sit on each client's page.
       </Footer>
     </Card>
@@ -903,6 +913,7 @@ function ItTracker() {
   const clients = useClientMap()
   const fees = useCan()('view_fees')
   const f = useFilters()
+  const x = useExportContext()
   const [kind, setKind] = useState<'all' | ItFiling['kind']>('all')
   const [status, setStatus] = useState<SimpleStatus | ''>('')
   const [owing, setOwing] = useState(false)
@@ -1035,7 +1046,7 @@ function ItTracker() {
           })}
         </TableShell>
       )}
-      <Footer shown={rows.length} total={inYear.length} dirty={dirty} onClear={clear}>
+      <Footer shown={rows.length} total={inYear.length} dirty={dirty} onClear={clear} onExport={() => downloadSheets(`FSG income tax AY ${ay}`, [itSheet(x, rows)])}>
         AY {ay} · non-audit individuals 31 Jul, proprietorships 31 Aug, audit cases 31 Oct. The government may extend these dates.
       </Footer>
     </Card>
@@ -1052,6 +1063,7 @@ function AuditTracker() {
   const clients = useClientMap()
   const fees = useCan()('view_fees')
   const f = useFilters()
+  const x = useExportContext()
   const [kind, setKind] = useState<AuditFiling['kind'] | ''>('')
   const [status, setStatus] = useState<SimpleStatus | ''>('')
   const [recon, setRecon] = useState<'open' | 'done' | ''>('')
@@ -1184,7 +1196,7 @@ function AuditTracker() {
           })}
         </TableShell>
       )}
-      <Footer shown={rows.length} total={audits.length} dirty={dirty} onClear={clear}>
+      <Footer shown={rows.length} total={audits.length} dirty={dirty} onClear={clear} onExport={() => downloadSheets('FSG audits', [auditSheet(x, rows)])}>
         {fees ? 'The fee balance counts audits that are filed or completed; money received before that is an advance.' : 'Tax, statutory and internal audits for the financial year.'}
       </Footer>
     </Card>
@@ -1288,6 +1300,7 @@ function ServiceTracker() {
   const updateService = useStore((s) => s.updateService)
   const fees = useCan()('view_fees')
   const f = useFilters()
+  const x = useExportContext()
   const [adding, setAdding] = useState(false)
   const [kind, setKind] = useState<ServiceKind | ''>('')
   const [status, setStatus] = useState<SimpleStatus | ''>('')
@@ -1427,7 +1440,7 @@ function ServiceTracker() {
           ))}
         </TableShell>
       )}
-      <Footer shown={rows.length} total={services.length} dirty={dirty} onClear={clear}>
+      <Footer shown={rows.length} total={services.length} dirty={dirty} onClear={clear} onExport={() => downloadSheets('FSG one-time work', [serviceSheet(x, rows)])}>
         Registrations, incorporations, trademark, FSSAI, DSC, legal metrology, certifications, PAN and TAN applications
       </Footer>
       {adding && <ServiceForm clientId={f.client?.id} onClose={() => setAdding(false)} />}

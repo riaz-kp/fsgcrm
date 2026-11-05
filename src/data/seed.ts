@@ -993,6 +993,9 @@ function attendance(emps: Employee[], today: string, off: OffDays): Attendance {
 export function buildSeed(): SeedData {
   const today = todayISO()
   const cs = clients(today)
+  // One owner's two businesses, each a client of its own ("in association with").
+  const [spice, marine] = ['Malabar Spice', 'Kadalundi Marine'].map((p) => cs.find((x) => x.name.startsWith(p)))
+  if (spice && marine) spice.associates = [marine.id]
   const emps = employees(today)
   const data = { gst: gst(cs, today), tds: tds(cs, today), it: it(cs, today), audits: audits(cs, today), services: services(cs, today) }
   ledger(cs, data, today)

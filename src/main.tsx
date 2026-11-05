@@ -6,6 +6,7 @@ import AuthGate from './components/AuthGate'
 import ErrorBoundary from './components/ErrorBoundary'
 import UpdatePrompt from './components/UpdatePrompt'
 import './lib/install'
+import './lib/theme'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

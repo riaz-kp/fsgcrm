@@ -422,7 +422,9 @@ export default function Tasks() {
   const [params, setParams] = useSearchParams()
   const preset = params.get('assignee') ?? ''
   const [mineOnly, setMineOnly] = useState<'mine' | 'all'>('all')
-  const [tab, setTab] = useState<StatusTab>('open')
+  // The dashboard links here with `?status=` (a status tab) and `?due=today` or `?due=late`.
+  const [tab, setTab] = useState<StatusTab>(() => (['open', ...TASK_STATUS_ORDER] as StatusTab[]).find((s) => s === params.get('status')) ?? 'open')
+  const [due, setDue] = useState<'today' | 'late' | ''>(() => (params.get('due') === 'today' || params.get('due') === 'late' ? (params.get('due') as 'today' | 'late') : ''))
   const [dept, setDept] = useState<Department | ''>('')
   const [assignee, setAssignee] = useState(preset)
   const [q, setQ] = useState('')
@@ -440,9 +442,10 @@ export default function Tasks() {
         (mineOnly === 'all' || t.assigneeId === me.id) &&
         (!dept || t.department === dept) &&
         (!assignee || t.assigneeId === assignee) &&
+        (!due || (t.status !== 'completed' && (due === 'today' ? daysUntil(t.dueDate) === 0 : daysUntil(t.dueDate) < 0))) &&
         (!term || t.title.toLowerCase().includes(term) || !!(t.clientId && clientName.get(t.clientId)?.toLowerCase().includes(term))),
     )
-  }, [tasks, clientName, mineOnly, me.id, dept, assignee, q])
+  }, [tasks, clientName, mineOnly, me.id, dept, assignee, q, due])
 
   const count = (s: StatusTab) => base.filter((t) => (s === 'open' ? t.status !== 'completed' : t.status === s)).length
   const rows = useMemo(
@@ -530,6 +533,14 @@ export default function Tasks() {
                 </option>
               ))}
             </Select>
+          )}
+          {due && (
+            <span className="inline-flex h-9 items-center gap-1 rounded-lg bg-brand-50 pr-1 pl-3 text-[13px] font-semibold text-brand-800 ring-1 ring-brand-200 ring-inset">
+              {due === 'today' ? 'Due today' : 'Overdue'}
+              <button type="button" onClick={() => setDue('')} aria-label="Show tasks due any day" title="Show tasks due any day" className="rounded p-1 hover:bg-brand-100">
+                <X size={13} />
+              </button>
+            </span>
           )}
           {head && mineOnly === 'all' && theirs.length > 0 && (
             <Button icon={<ArrowRightLeft size={15} />} onClick={() => setBulk(true)} className="max-sm:basis-full">

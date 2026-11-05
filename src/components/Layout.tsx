@@ -18,6 +18,8 @@ import {
   ListTodo,
   LogOut,
   Menu,
+  Monitor,
+  Moon,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
@@ -28,19 +30,22 @@ import {
   Settings,
   Share,
   Stamp,
+  Sun,
   Target,
   UserPlus,
   UserRound,
   Users,
   X,
 } from 'lucide-react'
-import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { startDemoLog } from '../lib/changeLog'
 import { statutoryDeadlines } from '../lib/deadlines'
 import { dscsDue, looksAfterDscs } from '../lib/dsc'
 import { addDays, cn, daysUntil, fmtDate, fmtTime, relDue, todayISO } from '../lib/format'
 import { install, installsFromShareMenu, useInstall } from '../lib/install'
+import { setTheme, useTheme, type ThemePick } from '../lib/theme'
+import { useDismiss } from '../lib/useDismiss'
 import { DEPARTMENTS, ROLES } from '../lib/meta'
 import { LIVE } from '../lib/supabase'
 import { dismissSyncError, useSyncStatus } from '../lib/sync'
@@ -48,25 +53,6 @@ import { useTrackerRows } from '../lib/useTrackerRows'
 import { birthdayOf, can, useCan, useCurrentUser, useDueReminders, useLookup, useStore, useVisibleTasks } from '../store'
 import { useAccount } from '../lib/account'
 import { Avatar, Badge, Button, IconButton } from './ui'
-
-/** Close a popover when the user clicks elsewhere or presses Escape. */
-function useDismiss(open: boolean, onClose: () => void) {
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
-    }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open, onClose])
-  return ref
-}
 
 /**
  * The sidebar has three shapes: a slide-in drawer below `lg`, a narrow rail of icons from `lg` to `xl`
@@ -147,6 +133,41 @@ function InstallItem({ onDone }: { onDone: () => void }) {
   )
 }
 
+const THEMES: Array<{ value: ThemePick; label: string; icon: ReactNode }> = [
+  { value: 'light', label: 'Light', icon: <Sun size={14} /> },
+  { value: 'dark', label: 'Dark', icon: <Moon size={14} /> },
+  { value: 'system', label: 'Auto', icon: <Monitor size={14} /> },
+]
+
+/** Light, dark, or as the device is set. Remembered on this device. */
+function ThemeItem() {
+  const theme = useTheme()
+  return (
+    <div className="border-t border-ink-100 px-3 py-2.5">
+      <p className="mb-1.5 text-[13px] font-semibold text-ink-600">Theme</p>
+      <div role="radiogroup" aria-label="Theme" className="flex rounded-lg bg-ink-100 p-0.5">
+        {THEMES.map((t) => (
+          <button
+            key={t.value}
+            type="button"
+            role="radio"
+            aria-checked={theme === t.value}
+            onClick={() => setTheme(t.value)}
+            title={t.value === 'system' ? 'Follow the device' : `${t.label} theme`}
+            className={cn(
+              'flex h-7 flex-1 items-center justify-center gap-1 rounded-md px-1.5 text-xs font-semibold transition-colors',
+              theme === t.value ? 'bg-white text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-800',
+            )}
+          >
+            {t.icon}
+            {t.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 /** Live: who is signed in, their profile and signing out. */
 function AccountMenu({ onClose }: { onClose: () => void }) {
   const me = useCurrentUser()
@@ -169,6 +190,7 @@ function AccountMenu({ onClose }: { onClose: () => void }) {
       >
         <UserRound size={14} /> My profile
       </button>
+      <ThemeItem />
       <InstallItem onDone={onClose} />
       <button
         type="button"
@@ -223,6 +245,7 @@ function UserSwitcher() {
               </li>
             ))}
           </ul>
+          <ThemeItem />
           <InstallItem onDone={() => setOpen(false)} />
           <button
             type="button"
@@ -587,7 +610,7 @@ export default function Layout() {
 
   return (
     <div data-rail={collapsed ? '' : undefined} className="min-h-dvh rail:pl-16 full:pl-56">
-      {navOpen && <div className="fixed inset-0 z-40 animate-fade-in bg-ink-900/40 lg:hidden" onClick={closeNav} />}
+      {navOpen && <div className="fixed inset-0 z-40 animate-fade-in bg-black/40 dark:bg-black/60 lg:hidden" onClick={closeNav} />}
 
       <aside
         className={cn(

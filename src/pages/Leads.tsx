@@ -489,8 +489,13 @@ export default function Leads() {
   const leads = useStore((s) => s.leads)
   const { emp } = useLookup()
   const [params, setParams] = useSearchParams()
-  const [view, setView] = useState<'board' | 'list'>('board')
-  const [filters, setFilters] = useState(EMPTY_FILTERS)
+  // The dashboard links here with `?status=` (shown as a list) and `?followup=`.
+  const [view, setView] = useState<'board' | 'list'>(() => (params.get('status') ? 'list' : 'board'))
+  const [filters, setFilters] = useState<Filters>(() => ({
+    ...EMPTY_FILTERS,
+    status: LEAD_STATUS_ORDER.find((s) => s === params.get('status')) ?? '',
+    followUp: FOLLOW_UPS.find((o) => o.value === params.get('followup'))?.value ?? '',
+  }))
   const [sort, setSort] = useStoredState<SortKey>('fsg-leads-sort', 'followup', isSort)
   const openId = params.get('open')
   const open = leads.find((l) => l.id === openId)

@@ -9,15 +9,17 @@ import { FIRM_NAME, PERMISSIONS, ROLE_PERMISSIONS, ROLES, TEMPLATES, TRACKERS, f
 import { LIVE } from '../lib/supabase'
 import { managesLogins, permissionsOf, useCan, useCurrentUser, useScopes, useStore } from '../store'
 import type { Employee, Permission, ScopeDef, TemplateKey, TrackerTab } from '../types'
+import BackupSettings from '../components/Backup'
 import ChangeHistory from '../components/ChangeHistory'
 import Logins from './SettingsLogins'
 
-type Tab = 'scopes' | 'permissions' | 'messages' | 'history' | 'logins'
+type Tab = 'scopes' | 'permissions' | 'messages' | 'history' | 'backup' | 'logins'
 const TABS: Array<{ value: Tab; label: string }> = [
   { value: 'scopes', label: 'Scopes of work' },
   { value: 'permissions', label: 'Permissions' },
   { value: 'messages', label: 'WhatsApp messages' },
   { value: 'history', label: 'Change history' },
+  { value: 'backup', label: 'Backup' },
 ]
 /** For those allowed to give out logins, on the live system only. */
 const LOGINS_TAB = { value: 'logins' as Tab, label: 'Logins' }
@@ -539,7 +541,7 @@ export default function Settings() {
 
   return (
     <>
-      <PageHeader title="Settings" subtitle="Scopes of work, who can do what, the wording of WhatsApp messages, and who changed what. Changes apply straight away." />
+      <PageHeader title="Settings" subtitle="Scopes of work, who can do what, the wording of WhatsApp messages, who changed what, and backups. Changes apply straight away." />
       <div className="mb-4">
         <Segmented value={tab as Tab} onChange={(t) => navigate(`/settings/${t}`)} items={tabs} />
       </div>
@@ -547,6 +549,7 @@ export default function Settings() {
       {tab === 'permissions' && <Permissions />}
       {tab === 'messages' && <Messages />}
       {tab === 'history' && <ChangeHistory filters />}
+      {tab === 'backup' && <BackupSettings />}
       {tab === 'logins' && <Logins />}
     </>
   )
