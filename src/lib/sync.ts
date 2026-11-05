@@ -264,10 +264,18 @@ async function inParallel<T>(items: T[], fn: (item: T) => Promise<void>) {
 
 const pkColumns = (match: Row) => Object.keys(match).join(',')
 
+/**
+ * Tracker rows are made from clients' scopes by whoever has the app open (see lib/trackerRows.ts), with ids worked
+ * out from the client and the period, so two people can make the same row at once. The first one in is kept.
+ */
+const MADE_FROM_SCOPES = new Set(['gst_filings', 'tds_filings', 'it_filings', 'audits'])
+
 async function request(op: Op): Promise<{ error: PostgrestError | null; status: number; data: unknown }> {
   const db = supabase!
   switch (op.kind) {
     case 'insert':
+      if (MADE_FROM_SCOPES.has(op.table))
+        return db.from(op.table).upsert({ ...op.row, origin: ORIGIN }, { onConflict: pkColumns(op.match), ignoreDuplicates: true }).select(pkColumns(op.match))
       // The database may give a new client the next free code; ask for it back.
       return db.from(op.table).insert({ ...op.row, origin: ORIGIN }).select(op.table === 'clients' ? 'id, code' : pkColumns(op.match))
     case 'upsert':
@@ -295,6 +303,8 @@ async function send(op: Op) {
     const rows = Array.isArray(res.data) ? (res.data as Row[]) : []
     // An update the access rules do not allow changes nothing and says so only by returning no rows.
     if (op.kind === 'update' && rows.length === 0) return refused(op, "you don't have permission to change it, or it no longer exists")
+    // Someone else made this row first: show theirs.
+    if (op.kind === 'insert' && MADE_FROM_SCOPES.has(op.table) && rows.length === 0) return void restore(op)
     if (op.kind === 'insert' && op.table === 'clients' && rows[0]?.code) {
       const code = rows[0].code as string
       const id = op.match.id as string

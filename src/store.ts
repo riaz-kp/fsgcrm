@@ -2,9 +2,10 @@ import { useMemo } from 'react'
 import { create } from 'zustand'
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware'
 import { buildSeed, type SeedData } from './data/seed'
-import { addDays, currentGstPeriod, todayISO, uid } from './lib/format'
+import { addDays, todayISO, uid } from './lib/format'
 import { ROLE_PERMISSIONS, TEMPLATES } from './lib/meta'
 import { LIVE } from './lib/supabase'
+import type { NewRows } from './lib/trackerRows'
 import type {
   AttendanceEntry,
   AttendanceMark,
@@ -48,6 +49,8 @@ interface Actions {
   updateAudit: (id: string, patch: Partial<AuditFiling>) => void
   updateService: (id: string, patch: Partial<ServiceJob>) => void
   addService: (s: Omit<ServiceJob, 'id'>) => void
+  /** The rows clients' scopes call for (see lib/trackerRows.ts). */
+  addTrackerRows: (rows: NewRows) => void
 
   addEmployee: (e: Omit<Employee, 'id' | 'hue' | 'active'>) => void
   updateEmployee: (id: string, patch: Partial<Employee>) => void
@@ -192,26 +195,6 @@ export const useStore = create<State>()(
           credentials: [],
           documents: [],
         })
-        if (lead.scopes.includes('gst_filing')) {
-          const period = currentGstPeriod()
-          set((s) => ({
-            gst: [
-              ...s.gst,
-              {
-                id: `g-${clientId}-${period}`,
-                clientId,
-                period,
-                gstr1: 'to_begin',
-                gstr3b: 'to_begin',
-                assigneeId: 'e-anna',
-                prevBalance: 0,
-                fee: 1500,
-                received: 0,
-                remark: 'New client',
-              },
-            ],
-          }))
-        }
         get().updateLead(id, { status: 'won', nextFollowUp: undefined })
         return clientId
       },
@@ -239,6 +222,13 @@ export const useStore = create<State>()(
       updateAudit: (id, patch) => set((s) => ({ audits: patchStatus(s.audits, id, patch) })),
       updateService: (id, patch) => set((s) => ({ services: patchStatus(s.services, id, patch) })),
       addService: (job) => set((s) => ({ services: [{ ...job, id: uid('s') }, ...s.services] })),
+      addTrackerRows: (rows) =>
+        set((s) => ({
+          ...(rows.gst.length && { gst: [...s.gst, ...rows.gst] }),
+          ...(rows.tds.length && { tds: [...s.tds, ...rows.tds] }),
+          ...(rows.it.length && { it: [...s.it, ...rows.it] }),
+          ...(rows.audits.length && { audits: [...s.audits, ...rows.audits] }),
+        })),
 
       addEmployee: (e) =>
         set((s) => ({

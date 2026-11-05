@@ -42,6 +42,7 @@ import { install, installsFromShareMenu, useInstall } from '../lib/install'
 import { DEPARTMENTS, ROLES } from '../lib/meta'
 import { LIVE } from '../lib/supabase'
 import { dismissSyncError, useSyncStatus } from '../lib/sync'
+import { useTrackerRows } from '../lib/useTrackerRows'
 import { birthdayOf, can, useCan, useCurrentUser, useDueReminders, useLookup, useStore, useVisibleTasks } from '../store'
 import { useAccount } from '../lib/account'
 import { Avatar, Badge, Button, IconButton } from './ui'
@@ -566,6 +567,7 @@ export default function Layout() {
   useEffect(() => {
     window.scrollTo(0, 0)
   }, [location.pathname])
+  useTrackerRows()
 
   return (
     <div data-rail={collapsed ? '' : undefined} className="min-h-dvh rail:pl-16 full:pl-56">

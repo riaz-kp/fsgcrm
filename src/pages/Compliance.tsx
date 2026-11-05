@@ -558,7 +558,9 @@ function TdsTracker() {
   const [status, setStatus] = useState<SimpleStatus | ''>('')
   const [owing, setOwing] = useState(false)
   const [notIn, setNotIn] = useState(false)
-  const fy = tds[0]?.fy ?? financialYear()
+  // Each deductor has a row a year; the month picked says which.
+  const fy = financialYear(`${month}-01`)
+  const inYear = useMemo(() => tds.filter((t) => t.fy === fy), [tds, fy])
   // Just the month's name ("September"): the year is in the month picker, and "Sep 26" would read like a date.
   const monthLabel = periodLabel(month).split(' ')[0]
   // A month with nothing recorded has not been deposited yet.
@@ -583,7 +585,7 @@ function TdsTracker() {
     updateTds(t.id, { dataIn })
   }
 
-  const rows = tds.filter(
+  const rows = inYear.filter(
     (t) =>
       f.match(t) &&
       (!payment || paymentFor(t) === payment) &&
@@ -733,7 +735,7 @@ function TdsTracker() {
           })}
         </TableShell>
       )}
-      <Footer shown={rows.length} total={tds.length} dirty={dirty} onClear={clear}>
+      <Footer shown={rows.length} total={inYear.length} dirty={dirty} onClear={clear}>
         FY {fy} · deduction details and payment every month, return every quarter{fees && ' · the fee is what has been billed this year so far'}. Income tax and TRACES logins sit on each client's page.
       </Footer>
     </Card>
@@ -753,9 +755,13 @@ function ItTracker() {
   const [owing, setOwing] = useState(false)
   const [notIn, setNotIn] = useState(false)
   const done = (r: ItFiling) => isClosed(r.status)
+  // A new assessment year's rows come in each April; earlier years stay for late returns.
+  const ays = useMemo(() => [...new Set([financialYear(), ...it.map((r) => r.ay)])].sort().reverse(), [it])
+  const [ay, setAy] = useState(financialYear)
+  const inYear = useMemo(() => it.filter((r) => r.ay === ay), [it, ay])
 
   // The tabs count what the other filters leave, so the numbers match the table.
-  const matched = it.filter((r) => f.match(r) && (!status || r.status === status) && (!notIn || !r.dataIn) && (!owing || (fees && r.fee - r.received > 0)))
+  const matched = inYear.filter((r) => f.match(r) && (!status || r.status === status) && (!notIn || !r.dataIn) && (!owing || (fees && r.fee - r.received > 0)))
   const rows = kind === 'all' ? matched : matched.filter((r) => r.kind === kind)
   // A return's fee falls due once it is filed.
   const feeBalance = rows.reduce((s, r) => s + (done(r) ? Math.max(0, r.fee - r.received) : 0), 0)
@@ -784,6 +790,15 @@ function ItTracker() {
           />
         }
       >
+        {ays.length > 1 && (
+          <Select small fit value={ay} onChange={(e) => setAy(e.target.value)} aria-label="Assessment year" className="font-semibold">
+            {ays.map((y) => (
+              <option key={y} value={y}>
+                AY {y}
+              </option>
+            ))}
+          </Select>
+        )}
         <FilterSelect value={status} onChange={setStatus} label="Return status" any="Any status" items={SIMPLE_ITEMS} />
         <label className="flex h-8 items-center gap-2 px-1 text-[13px] font-semibold text-ink-600">
           <Tick checked={notIn} onChange={setNotIn} label="Show only returns whose data is not in" />
@@ -867,8 +882,8 @@ function ItTracker() {
           })}
         </TableShell>
       )}
-      <Footer shown={rows.length} total={it.length} dirty={dirty} onClear={clear}>
-        AY {it[0]?.ay ?? financialYear()} · non-audit individuals 31 Jul, proprietorships 31 Aug, audit cases 31 Oct. The government may extend these dates.
+      <Footer shown={rows.length} total={inYear.length} dirty={dirty} onClear={clear}>
+        AY {ay} · non-audit individuals 31 Jul, proprietorships 31 Aug, audit cases 31 Oct. The government may extend these dates.
       </Footer>
     </Card>
   )
