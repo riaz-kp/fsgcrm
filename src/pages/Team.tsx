@@ -1,8 +1,9 @@
-import { ArrowRight, Cake, CalendarDays, Mail, Pencil, Phone, Plus } from 'lucide-react'
+import { ArrowRight, Cake, CalendarDays, Clock, Mail, Pencil, Phone, Plus, UserRoundX } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import EmployeeForm from '../components/EmployeeForm'
 import { Avatar, Badge, Button, Card, IconButton, PageHeader, Progress } from '../components/ui'
+import { workingHours } from '../lib/attendance'
 import { cn, daysToBirthday, daysUntil, fmtDate, telHref, tenure } from '../lib/format'
 import { ROLES } from '../lib/meta'
 import { birthdayOf, canSeeProfile, isHead, useCan, useCurrentUser, useStore } from '../store'
@@ -21,11 +22,11 @@ interface Stats {
   done: number
 }
 
-function MemberCard({ e, stats, manager, max, onEdit }: { e: Employee; stats?: Stats; manager?: Employee; max: number; onEdit?: () => void }) {
+function MemberCard({ e, stats, manager, max, onEdit, canReassign }: { e: Employee; stats?: Stats; manager?: Employee; max: number; onEdit?: () => void; canReassign?: boolean }) {
   const birthday = birthdayOf(e)
   const birthdayIn = birthday ? daysToBirthday(birthday) : undefined
   return (
-    <Card className="flex flex-col p-4">
+    <Card className={cn('flex flex-col p-4', !e.active && 'bg-ink-50/60')}>
       <div className="flex items-start gap-3">
         <Link to={`/team/${e.id}`} title={`Open ${e.name}'s page`} className="group flex min-w-0 flex-1 items-start gap-3">
           <Avatar name={e.name} hue={e.hue} photo={e.photo} size={48} />
@@ -34,7 +35,7 @@ function MemberCard({ e, stats, manager, max, onEdit }: { e: Employee; stats?: S
             <span className="block truncate text-[13px] text-ink-500">{e.title}</span>
           </span>
         </Link>
-        <Badge tone={ROLES[e.role].tone}>{ROLES[e.role].label}</Badge>
+        {e.active ? <Badge tone={ROLES[e.role].tone}>{ROLES[e.role].label}</Badge> : <Badge>Inactive</Badge>}
         {onEdit && (
           <IconButton label={`Edit ${e.name}`} onClick={onEdit} className="-mt-1 -mr-1.5">
             <Pencil size={14} />
@@ -54,6 +55,11 @@ function MemberCard({ e, stats, manager, max, onEdit }: { e: Employee; stats?: S
           <dt className="sr-only">Joined</dt>
           <dd>{e.joined ? `Joined ${fmtDate(e.joined, true)} · ${tenure(e.joined)}` : 'Joining date not added'}</dd>
         </div>
+        <div className="flex items-center gap-2">
+          <Clock size={14} className="text-ink-400" />
+          <dt className="sr-only">Working hours</dt>
+          <dd>{workingHours(e) ? `Works ${workingHours(e)}` : 'Working hours not set'}</dd>
+        </div>
         <div className={cn('flex items-center gap-2', birthdayIn === 0 && 'font-semibold text-amber-700')}>
           <Cake size={14} className={birthdayIn === 0 ? 'text-amber-600' : 'text-ink-400'} />
           <dt className="sr-only">Birthday</dt>
@@ -67,7 +73,18 @@ function MemberCard({ e, stats, manager, max, onEdit }: { e: Employee; stats?: S
         </div>
       </dl>
 
-      {stats && (
+      {!e.active && stats && stats.open > 0 && (
+        <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-[13px] font-semibold text-amber-800 ring-1 ring-amber-200">
+          {stats.open} open task{stats.open === 1 ? '' : 's'} still with {e.name}.{' '}
+          {canReassign && (
+            <Link to={`/tasks?assignee=${e.id}&reassign=1`} className="text-brand-700 underline-offset-2 hover:underline">
+              Reassign
+            </Link>
+          )}
+        </p>
+      )}
+
+      {stats && e.active && (
         <>
           <dl className="mt-4 grid grid-cols-3 gap-2 text-center">
             {[
@@ -145,7 +162,7 @@ export default function Team() {
   const birthdays = useMemo(
     () =>
       employees
-        .filter((e) => birthdayOf(e))
+        .filter((e) => e.active && birthdayOf(e))
         .map((e) => ({ e, days: daysToBirthday(birthdayOf(e)!) }))
         .filter((b) => b.days <= 30)
         .sort((a, b) => a.days - b.days),
@@ -153,16 +170,18 @@ export default function Team() {
   )
 
   const max = Math.max(1, ...[...stats.values()].map((s) => s.open))
+  const active = employees.filter((e) => e.active)
   const groups = [
-    { title: 'Leadership', hint: 'Assign work and approve it', list: employees.filter(isHead) },
-    { title: 'Staff & trainees', hint: 'No fixed allocation: who does what changes month to month and client to client', list: employees.filter((e) => !isHead(e)) },
-  ]
+    { title: 'Leadership', hint: 'Assign work and approve it', list: active.filter(isHead) },
+    { title: 'Staff & trainees', hint: 'No fixed allocation: who does what changes month to month and client to client', list: active.filter((e) => !isHead(e)) },
+    { title: 'Inactive', hint: 'No longer at the firm or away for now. They cannot sign in; their work and attendance stay on record.', list: employees.filter((e) => !e.active) },
+  ].filter((g) => g.list.length)
 
   return (
     <>
       <PageHeader
         title="Team"
-        subtitle={`${employees.length} people · ${employees.filter(isHead).length} heads · open anyone for their details, work and attendance`}
+        subtitle={`${active.length} people · ${active.filter(isHead).length} heads${active.length < employees.length ? ` · ${employees.length - active.length} inactive` : ''} · open anyone for their details, work and attendance`}
         actions={
           can('edit_team') && (
             <Button variant="primary" icon={<Plus size={16} />} onClick={() => setAdding(true)}>
@@ -191,7 +210,10 @@ export default function Team() {
       {groups.map((g) => (
         <section key={g.title} className="mb-6">
           <div className="mb-2.5 flex flex-wrap items-baseline gap-x-3">
-            <h2 className="text-[15px] font-bold text-ink-900">{g.title}</h2>
+            <h2 className="flex items-center gap-1.5 text-[15px] font-bold text-ink-900">
+              {g.title === 'Inactive' && <UserRoundX size={16} className="self-center text-ink-400" />}
+              {g.title}
+            </h2>
             <p className="text-[13px] text-ink-500">{g.hint}</p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -204,6 +226,7 @@ export default function Team() {
                 manager={employees.find((x) => x.id === e.reportsTo)}
                 max={max}
                 onEdit={can('edit_team') || e.id === me.id ? () => setEditing(e) : undefined}
+                canReassign={can('assign_tasks')}
               />
             ))}
           </div>

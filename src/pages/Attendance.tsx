@@ -1,9 +1,9 @@
-import { ArrowLeft, UserRound } from 'lucide-react'
+import { ArrowLeft, Check, UserRound } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
-import { AttendancePanel, MonthSwitch, OtInput, TimeInput } from '../components/AttendancePanel'
+import { AttendancePanel, MonthSwitch, OnTimeToggle, OtInput, TimeInput } from '../components/AttendancePanel'
 import { Avatar, Button, Card, CardHeader, Empty, Field, Input, Modal, PageHeader, Select } from '../components/ui'
-import { MARK_CELL, attendanceTotals, fmtOt, monthDays, offDayName, timing, workingDays } from '../lib/attendance'
+import { MARK_CELL, attendanceTotals, fmtOt, monthDays, offDayName, timing, workingDays, workingHours } from '../lib/attendance'
 import { cn, fmtDate, fmtDuration, fmtWeekday, nowHHMM, todayISO } from '../lib/format'
 import { ATTENDANCE, ATTENDANCE_ORDER } from '../lib/meta'
 import { can, useCurrentUser, useStore } from '../store'
@@ -68,6 +68,19 @@ function OffDayForm({ date, onClose }: { date: string; onClose: () => void }) {
 
 /* ---------- Register: everyone, one month ---------- */
 
+/** The small corner marks on a register cell. */
+function OnTimeMark() {
+  return (
+    <span className="absolute -right-1 -bottom-1 flex size-3 items-center justify-center rounded-full bg-emerald-600 text-white ring-1 ring-white">
+      <Check size={8} strokeWidth={4} />
+    </span>
+  )
+}
+
+function LateMark() {
+  return <span className="absolute -right-0.5 -bottom-0.5 size-2 rounded-full bg-amber-500 ring-1 ring-white" />
+}
+
 const FIELD_LABEL = 'text-[11px] font-bold tracking-wide text-ink-400 uppercase'
 
 export default function AttendancePage() {
@@ -79,19 +92,22 @@ export default function AttendancePage() {
   const setAttendance = useStore((s) => s.setAttendance)
   const setAttendanceTime = useStore((s) => s.setAttendanceTime)
   const setOvertime = useStore((s) => s.setOvertime)
+  const setOnTime = useStore((s) => s.setOnTime)
   const today = todayISO()
   const [month, setMonth] = useState(today.slice(0, 7))
   const [editingDay, setEditingDay] = useState<string>()
 
   // Whoever keeps attendance (the heads, by default) has the register for everyone; others see their own row.
-  const people = head ? employees : employees.filter((e) => e.id === me.id)
+  // Someone made inactive stays in the months they have days in, and drops out of the rest.
+  const people = head ? employees.filter((e) => e.active || Object.keys(attendance[e.id] ?? {}).some((d) => d.startsWith(month))) : employees.filter((e) => e.id === me.id)
+  const present = people.filter((e) => e.active)
   const days = useMemo(() => monthDays(month, offDays), [month, offDays])
   const current = month === today.slice(0, 7)
   const total = workingDays(month, offDays)
   const soFar = workingDays(month, offDays, today)
   const holidays = days.filter((d) => d.off && !d.sunday)
   const todayOff = offDayName(today, offDays)
-  const unmarkedToday = people.filter((e) => !attendance[e.id]?.[today])
+  const unmarkedToday = present.filter((e) => !attendance[e.id]?.[today])
 
   const markToday = (id: string, mark: AttendanceMark) => {
     const entry = attendance[id]?.[today]
@@ -130,14 +146,17 @@ export default function AttendancePage() {
             }
           />
           <ul className="grid gap-2 px-5 lg:grid-cols-2">
-            {people.map((e) => {
+            {present.map((e) => {
               const entry = attendance[e.id]?.[today]
               const away = !entry || entry.mark === 'L'
               return (
                 <li key={e.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg p-2 ring-1 ring-ink-200/80">
                   <Link to={`/attendance/${e.id}`} className="flex min-w-32 flex-1 items-center gap-2.5 hover:text-brand-700">
                     <Avatar name={e.name} hue={e.hue} photo={e.photo} size={28} />
-                    <span className="truncate text-[13px] font-semibold text-ink-800 hover:text-brand-700">{e.name}</span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-[13px] font-semibold text-ink-800 hover:text-brand-700">{e.name}</span>
+                      <span className="tnum block truncate text-[11px] text-ink-400">{workingHours(e) || 'Hours not set'}</span>
+                    </span>
                   </Link>
                   <span className="flex gap-0.5" role="group" aria-label={`Attendance for ${e.name}`}>
                     {ATTENDANCE_ORDER.filter((m) => !todayOff || m !== 'L').map((m) => (
@@ -170,13 +189,14 @@ export default function AttendancePage() {
                       <span className={FIELD_LABEL}>OT</span>
                       <OtInput label={`Overtime for ${e.name} today, in hours`} minutes={entry?.ot} disabled={away} onChange={(m) => setOvertime(e.id, today, m)} />
                     </span>
+                    <OnTimeToggle entry={entry} workFrom={e.workFrom} name={e.name} onChange={(v) => setOnTime(e.id, today, v)} />
                   </span>
                 </li>
               )
             })}
           </ul>
           <p className="px-5 py-3 text-xs text-ink-500">
-            Marking someone present or half day notes the time as their time in. Set the time out when they leave, and any overtime in hours; all of it can be corrected.
+            Marking someone present or half day notes the time as their time in, and ticks on time if that is by the start of their working hours. Set the time out when they leave, and any overtime in hours; all of it can be corrected.
           </p>
         </Card>
       )}
@@ -207,6 +227,18 @@ export default function AttendancePage() {
                 P<span className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-brand-500" />
               </span>
               Overtime
+            </li>
+            <li className="flex items-center gap-1.5 text-[13px] text-ink-600">
+              <span className="relative flex size-5 items-center justify-center rounded bg-emerald-100 text-[11px] font-bold text-emerald-800">
+                P<OnTimeMark />
+              </span>
+              On time
+            </li>
+            <li className="flex items-center gap-1.5 text-[13px] text-ink-600">
+              <span className="relative flex size-5 items-center justify-center rounded bg-emerald-100 text-[11px] font-bold text-emerald-800">
+                P<LateMark />
+              </span>
+              Late
             </li>
           </ul>
         </div>
@@ -249,6 +281,9 @@ export default function AttendancePage() {
                 <th className="bg-ink-50 px-2 text-center text-[11px] font-bold text-ink-500" title="Overtime recorded this month">
                   OT
                 </th>
+                <th className="bg-ink-50 px-2 text-center text-[11px] font-bold whitespace-nowrap text-ink-500" title="Days on time, of the days ticked on time or late">
+                  On time
+                </th>
                 <th className="bg-ink-50 pr-5 pl-2 text-center text-[11px] font-bold tracking-wider whitespace-nowrap text-ink-500 uppercase" title="Days worked, a half day counting as half, of the month's working days">
                   Days
                   <span className="block text-[10px] font-semibold tracking-normal normal-case">of {total}</span>
@@ -271,7 +306,16 @@ export default function AttendancePage() {
                       const mark = entry?.mark
                       const future = d.date > today
                       const state = mark
-                        ? [ATTENDANCE[mark].label, timing(entry), entry?.ot && `OT ${fmtDuration(entry.ot)}`, d.off && `worked on an off day (${d.off})`].filter(Boolean).join(' · ')
+                        ? [
+                            ATTENDANCE[mark].label,
+                            timing(entry),
+                            entry?.onTime === true && 'on time',
+                            entry?.onTime === false && 'late',
+                            entry?.ot && `OT ${fmtDuration(entry.ot)}`,
+                            d.off && `worked on an off day (${d.off})`,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')
                         : d.off
                           ? `Off · ${d.off}`
                           : 'not marked'
@@ -292,6 +336,8 @@ export default function AttendancePage() {
                           >
                             {mark ?? (d.off ? '·' : '')}
                             {!!entry?.ot && <span className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-brand-500" />}
+                            {mark !== 'L' && entry?.onTime === true && <OnTimeMark />}
+                            {mark !== 'L' && entry?.onTime === false && <LateMark />}
                           </button>
                         </td>
                       )
@@ -303,6 +349,16 @@ export default function AttendancePage() {
                     ))}
                     <td className="tnum border-t border-ink-100 px-2 text-center text-[13px] font-bold whitespace-nowrap text-brand-700">
                       {t.ot ? fmtOt(t.ot) : <span className="font-normal text-ink-300">—</span>}
+                    </td>
+                    <td className="tnum border-t border-ink-100 px-2 text-center text-[13px] whitespace-nowrap" title={t.late ? `${t.late} late` : undefined}>
+                      {t.onTime + t.late ? (
+                        <>
+                          <span className="font-bold text-emerald-700">{t.onTime}</span>
+                          <span className="text-[11px] text-ink-400">/{t.onTime + t.late}</span>
+                        </>
+                      ) : (
+                        <span className="text-ink-300">—</span>
+                      )}
                     </td>
                     <td
                       className="tnum border-t border-ink-100 pr-5 pl-2 text-center text-[13px] font-extrabold text-ink-900"
@@ -324,7 +380,7 @@ export default function AttendancePage() {
           </p>
           <p>
             {head
-              ? 'Click a day to step through Present, Half day, Leave and blank (on an off day, Present, Half day and blank). Click a date to make it an off day for everyone, such as a holiday. A dot marks overtime, entered in hours under Today or on a person’s page.'
+              ? 'Click a day to step through Present, Half day, Leave and blank (on an off day, Present, Half day and blank). Click a date to make it an off day for everyone, such as a holiday. A dot at the top marks overtime; a tick at the bottom marks on time, and an amber dot late. Overtime and on time are set under Today or on a person’s page.'
               : 'Marked by your heads. Ask them if a day looks wrong.'}
           </p>
         </div>

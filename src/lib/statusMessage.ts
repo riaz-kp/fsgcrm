@@ -88,9 +88,10 @@ export function statusLines(client: Client, src: Sources, fees = true): StatusLi
   return out
 }
 
-/** How a message to a client opens: by name for a person, Sir/Madam for a business. */
-export function greetingFor(client?: Pick<Client, 'name' | 'category'>): string {
-  return client?.category === 'Individual' ? `Dear ${client.name}` : 'Dear Sir/Madam'
+/** How a message to a client opens: by name for a person, by the contact person's name for a business that has one, else Sir/Madam. */
+export function greetingFor(client?: Pick<Client, 'name' | 'category' | 'contactPerson'>): string {
+  if (client?.category === 'Individual') return `Dear ${client.name}`
+  return client?.contactPerson ? `Dear ${client.contactPerson}` : 'Dear Sir/Madam'
 }
 
 /** The message the lines add up to, in the firm's template. It is a draft: whoever sends it reads and adjusts it first. */

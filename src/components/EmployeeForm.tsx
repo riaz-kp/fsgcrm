@@ -3,9 +3,9 @@ import { useRef, useState, type ReactNode } from 'react'
 import { ageFrom, cn, todayISO } from '../lib/format'
 import { BLOOD_GROUPS, ROLES, options } from '../lib/meta'
 import { LIVE } from '../lib/supabase'
-import { isHead, managesLogins, useCan, useCurrentUser, useStore } from '../store'
+import { isHead, managesLogins, pickable, useCan, useCurrentUser, useStore } from '../store'
 import type { BloodGroup, Employee, FamilyDetails, Role } from '../types'
-import { Avatar, Button, Field, Input, Modal, Select, Textarea } from './ui'
+import { Avatar, Button, Field, Input, Modal, Select, Switch, Textarea } from './ui'
 
 /** Crop to a centred square and shrink, so a phone photo fits in browser storage. */
 function resizePhoto(file: File, size = 240): Promise<string> {
@@ -50,6 +50,9 @@ export default function EmployeeForm({ employee, onClose }: { employee?: Employe
   // Only the admin or the CEO makes someone admin or CEO, or changes the role of someone who is.
   const mayGiveTopRoles = managesLogins(me)
   const topRoleLocked = !mayGiveTopRoles && !!employee && TOP_ROLES.includes(employee.role)
+  // Nobody makes themselves inactive: they could no longer sign in to undo it.
+  const self = employee?.id === me.id
+  const openTasks = useStore((s) => (employee ? s.tasks.filter((t) => t.assigneeId === employee.id && t.status !== 'completed').length : 0))
   const file = useRef<HTMLInputElement>(null)
   const [error, setError] = useState('')
   const [f, setF] = useState({
@@ -61,6 +64,10 @@ export default function EmployeeForm({ employee, onClose }: { employee?: Employe
     phone: employee?.phone ?? '',
     email: employee?.email ?? '',
     joined: employee?.joined ?? todayISO(),
+    active: employee?.active ?? true,
+    // A new member starts on the usual hours; someone already here keeps theirs, or none until they are set.
+    workFrom: employee ? (employee.workFrom ?? '') : '09:30',
+    workTo: employee ? (employee.workTo ?? '') : '17:30',
     dob: employee?.dob ?? '',
     address: employee?.address ?? '',
     bloodGroup: employee?.bloodGroup ?? ('' as BloodGroup | ''),
@@ -95,6 +102,7 @@ export default function EmployeeForm({ employee, onClose }: { employee?: Employe
     }
     const personal = {
       phone: f.phone.trim(),
+      email: f.email.trim(),
       dob: f.dob || undefined,
       address: f.address.trim() || undefined,
       bloodGroup: f.bloodGroup || undefined,
@@ -116,10 +124,11 @@ export default function EmployeeForm({ employee, onClose }: { employee?: Employe
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean),
-      email: f.email.trim(),
       joined: f.joined || undefined,
+      workFrom: f.workFrom || undefined,
+      workTo: f.workTo || undefined,
     }
-    if (employee) updateEmployee(employee.id, data)
+    if (employee) updateEmployee(employee.id, self ? data : { ...data, active: f.active })
     else addEmployee(data)
     onClose()
   }
@@ -134,7 +143,7 @@ export default function EmployeeForm({ employee, onClose }: { employee?: Employe
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={save} disabled={!f.name.trim()}>
+          <Button variant="primary" onClick={save} disabled={!f.name.trim() || (!!f.workFrom && !!f.workTo && f.workTo <= f.workFrom)}>
             {employee ? 'Save changes' : 'Add member'}
           </Button>
         </>
@@ -160,7 +169,7 @@ export default function EmployeeForm({ employee, onClose }: { employee?: Employe
 
       {own && (
         <p className="mb-4 rounded-lg bg-ink-50 px-3 py-2 text-[13px] text-ink-600">
-          You can update your photo, personal and family details. Your name, designation, role, joining date and email are changed by those who edit the team.
+          You can update your photo, contact, personal and family details. Your name, designation, role, working hours and joining date are changed by those who edit the team.
         </p>
       )}
 
@@ -186,7 +195,7 @@ export default function EmployeeForm({ employee, onClose }: { employee?: Employe
           <Field label="Reports to">
             <Select value={f.reportsTo} onChange={(e) => set('reportsTo', e.target.value)}>
               <option value="">No one</option>
-              {employees
+              {pickable(employees, f.reportsTo)
                 .filter((e) => isHead(e) && e.id !== employee?.id)
                 .map((e) => (
                   <option key={e.id} value={e.id}>
@@ -198,6 +207,29 @@ export default function EmployeeForm({ employee, onClose }: { employee?: Employe
           <Field label="Usually works on" hint="comma separated" className="sm:col-span-2">
             <Input value={f.responsibilities} onChange={(e) => set('responsibilities', e.target.value)} placeholder="GST filing, book keeping" />
           </Field>
+          <Field label="Working hours" hint={f.workFrom && f.workTo && f.workTo <= f.workFrom ? 'The end must be after the start' : 'coming in by the start is on time'}>
+            <span className="flex items-center gap-2">
+              <Input type="time" value={f.workFrom} onChange={(e) => set('workFrom', e.target.value)} aria-label="Starts work at" className="tnum" />
+              <span className="text-[13px] text-ink-500">to</span>
+              <Input type="time" value={f.workTo} onChange={(e) => set('workTo', e.target.value)} aria-label="Finishes work at" className="tnum" />
+            </span>
+          </Field>
+          {employee && (
+            <div>
+              <p className="mb-1.5 text-[13px] font-semibold text-ink-700">Status</p>
+              <label className={cn('flex h-9 items-center gap-2.5 text-sm font-semibold', f.active ? 'text-emerald-700' : 'text-ink-500')}>
+                <Switch checked={f.active} onChange={(v) => set('active', v)} label="Active" disabled={self} />
+                {f.active ? 'Active' : 'Inactive'}
+              </label>
+              <p className="mt-1 text-xs text-ink-500">
+                {self
+                  ? 'You cannot make yourself inactive.'
+                  : f.active
+                    ? 'Inactive people cannot sign in, and are left out of new work and the attendance register.'
+                    : `Cannot sign in. Their history stays.${openTasks ? ` ${openTasks} open task${openTasks === 1 ? ' is' : 's are'} still with them: reassign ${openTasks === 1 ? 'it' : 'them'} on Tasks.` : ''}`}
+              </p>
+            </div>
+          )}
         </Section>
       )}
 
@@ -211,8 +243,8 @@ export default function EmployeeForm({ employee, onClose }: { employee?: Employe
         <Field label="Mobile number">
           <Input value={f.phone} onChange={(e) => set('phone', e.target.value)} inputMode="tel" />
         </Field>
-        <Field label="Mail ID" hint={LIVE ? 'They sign up and sign in with this email' : undefined}>
-          <Input value={f.email} onChange={(e) => set('email', e.target.value)} type="email" disabled={own} />
+        <Field label="Mail ID" hint={LIVE ? 'for getting in touch; sign-in is by username' : undefined}>
+          <Input value={f.email} onChange={(e) => set('email', e.target.value)} type="email" />
         </Field>
         <Field label="Blood group">
           <Select value={f.bloodGroup} onChange={(e) => set('bloodGroup', e.target.value as BloodGroup | '')}>

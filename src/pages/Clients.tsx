@@ -52,7 +52,7 @@ export default function Clients() {
           (!category || c.category === category) &&
           (!scope || c.scopes.includes(scope)) &&
           (!term ||
-            [c.name, c.code, c.place, c.phone, c.whatsapp, c.email, c.business, c.profession, c.gstin, c.pan].some((v) => v?.toLowerCase().includes(term))),
+            [c.name, c.code, c.place, c.phone, c.whatsapp, c.email, c.business, c.profession, c.contactPerson, c.gstin, c.pan].some((v) => v?.toLowerCase().includes(term))),
       )
       .sort(SORTS[sort].cmp)
   }, [clients, q, category, scope, status, sort])
@@ -168,7 +168,10 @@ export default function Clients() {
                             {c.name}
                             {!c.active && <Badge className="ml-2">Inactive</Badge>}
                           </p>
-                          <p className="tnum text-xs text-ink-500">{c.code}</p>
+                          <p className="truncate text-xs text-ink-500">
+                            <span className="tnum">{c.code}</span>
+                            {c.contactPerson && ` · ${c.contactPerson}`}
+                          </p>
                         </div>
                       </div>
                     </Td>

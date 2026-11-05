@@ -7,7 +7,7 @@ import { Avatar, Badge, Button, Card, Drawer, Empty, Field, IconButton, Input, M
 import { addDays, cn, daysUntil, fmtDate, todayISO } from '../lib/format'
 import { CATEGORIES, CATEGORY_TONE, LEAD_SOURCES, LEAD_STATUS, LEAD_STATUS_ORDER, options, pruneScopeDetails } from '../lib/meta'
 import { useStoredState } from '../lib/useStoredState'
-import { useCurrentUser, useLookup, useScopes, useStore } from '../store'
+import { pickable, useCurrentUser, useLookup, useScopes, useStore } from '../store'
 import type { ClientCategory, Lead, LeadStatus, ScopeDetails, ScopeKey } from '../types'
 
 const isOpen = (l: Lead) => l.status === 'new' || l.status === 'followup'
@@ -100,7 +100,7 @@ function LeadForm({ onClose }: { onClose: () => void }) {
         </Field>
         <Field label="Handled by">
           <Select value={f.ownerId} onChange={(e) => set('ownerId', e.target.value)}>
-            {employees.map((e) => (
+            {pickable(employees, f.ownerId).map((e) => (
               <option key={e.id} value={e.id}>
                 {e.name}
               </option>

@@ -1,4 +1,4 @@
-import type { AttendanceEntry, AttendanceMark, OffDays } from '../types'
+import type { AttendanceEntry, AttendanceMark, Employee, OffDays } from '../types'
 import { addDays, fmtTime, minutesBetween, parseISO } from './format'
 
 /** Cell colours for the three marks, shared by the register and a person's own page. */
@@ -12,6 +12,16 @@ export const MARK_CELL: Record<AttendanceMark, string> = {
 export function timing(e?: AttendanceEntry): string {
   if (!e?.in) return ''
   return e.out ? `${fmtTime(e.in)} – ${fmtTime(e.out)}` : `in ${fmtTime(e.in)}`
+}
+
+/** A person's hours, '9:30 am – 5:30 pm', or '' while they are not set. */
+export function workingHours(e: Pick<Employee, 'workFrom' | 'workTo'>): string {
+  return e.workFrom && e.workTo ? `${fmtTime(e.workFrom)} – ${fmtTime(e.workTo)}` : e.workFrom ? `from ${fmtTime(e.workFrom)}` : ''
+}
+
+/** How late a time in is against the start of someone's hours, in minutes; 0 when on time or either is missing. */
+export function minutesLate(timeIn?: string, workFrom?: string): number {
+  return timeIn && workFrom && timeIn > workFrom ? minutesBetween(workFrom, timeIn) : 0
 }
 
 /** Minutes past midnight -> 'HH:MM'. */
@@ -72,6 +82,9 @@ export interface AttendanceTotals extends Record<AttendanceMark, number> {
   offWorked: number
   /** Overtime recorded, in minutes. */
   ot: number
+  /** Days worked that were ticked on time, and those marked late. */
+  onTime: number
+  late: number
   /** Minutes between time in and time out, over the days that have both. */
   minutes: number
   /** Days that have both times. */
@@ -86,7 +99,7 @@ const toMinutes = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 
 
 /** Counts and hours for one person's entries in a month ('YYYY-MM') or a year ('YYYY'). */
 export function attendanceTotals(days: Record<string, AttendanceEntry> | undefined, prefix: string, offDays: OffDays = {}): AttendanceTotals {
-  const t: AttendanceTotals = { P: 0, H: 0, L: 0, worked: 0, offWorked: 0, ot: 0, minutes: 0, timed: 0, usual: 0, inSum: 0, outSum: 0 }
+  const t: AttendanceTotals = { P: 0, H: 0, L: 0, worked: 0, offWorked: 0, ot: 0, onTime: 0, late: 0, minutes: 0, timed: 0, usual: 0, inSum: 0, outSum: 0 }
   for (const [date, e] of Object.entries(days ?? {})) {
     if (!date.startsWith(prefix)) continue
     t[e.mark]++
@@ -95,6 +108,8 @@ export function attendanceTotals(days: Record<string, AttendanceEntry> | undefin
     t.worked += share
     if (off) t.offWorked += share
     t.ot += e.ot ?? 0
+    if (e.mark !== 'L' && e.onTime === true) t.onTime++
+    if (e.mark !== 'L' && e.onTime === false) t.late++
     if (e.in && e.out) {
       t.minutes += minutesBetween(e.in, e.out)
       t.timed++

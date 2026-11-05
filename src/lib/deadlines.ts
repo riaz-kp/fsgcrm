@@ -147,3 +147,8 @@ export function itDueDate(row: { ay: string; kind: 'non_audit' | 'audit' }, c?: 
   if (row.kind === 'audit') return `${y}-10-31`
   return c?.category === 'Proprietorship' ? `${y}-08-31` : `${y}-07-31`
 }
+
+/** When GSTR-1 for a period ('YYYY-MM') is due: the 11th of the next month, or the 13th for a quarterly (QRMP) client, whose invoices for the first two months of a quarter go in by IFF on the 13th too. */
+export function gstr1Due(period: string, freq: 'M' | 'Q' = 'M'): string {
+  return `${shiftPeriod(period, 1)}-${freq === 'Q' ? '13' : '11'}`
+}

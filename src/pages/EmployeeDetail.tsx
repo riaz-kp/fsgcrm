@@ -6,7 +6,7 @@ import { Detail, Due, MailLink, PhoneLink, StatCard } from '../components/bits'
 import EmployeeForm from '../components/EmployeeForm'
 import WorkHistory from '../components/WorkHistory'
 import { Avatar, Badge, Button, Card, CardHeader, Empty, Progress, Segmented, Select } from '../components/ui'
-import { offDayName, timing } from '../lib/attendance'
+import { offDayName, timing, workingHours } from '../lib/attendance'
 import { ageFrom, currentGstPeriod, daysUntil, fmtDate, periodLabel, tenure, todayISO } from '../lib/format'
 import { workEntries } from '../lib/history'
 import { ATTENDANCE, ROLES, TASK_STATUS } from '../lib/meta'
@@ -36,6 +36,7 @@ function AtTheFirm({ emp, contact }: { emp: Employee; contact?: boolean }) {
         <Detail label="Role">
           <Badge tone={ROLES[emp.role].tone}>{ROLES[emp.role].label}</Badge>
         </Detail>
+        <Detail label="Working hours">{workingHours(emp)}</Detail>
         <Detail label="Reports to">
           {manager && (
             <Link to={`/team/${manager.id}`} className="text-brand-700 hover:underline">
@@ -324,6 +325,7 @@ export default function EmployeeDetail() {
           <h1 className="truncate text-[22px] leading-tight font-extrabold tracking-tight text-ink-900">{emp.name}</h1>
           <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-500">
             <Badge tone={ROLES[emp.role].tone}>{ROLES[emp.role].label}</Badge>
+            {!emp.active && <Badge tone="red">Inactive · cannot sign in</Badge>}
             {/* A trainee's designation is just "Trainee" again. */}
             <span>{[emp.title !== ROLES[emp.role].label && emp.title, manager ? `reports to ${manager.name}` : 'leads the firm'].filter(Boolean).join(' · ')}</span>
           </p>

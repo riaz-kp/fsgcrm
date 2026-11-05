@@ -1,12 +1,13 @@
-import { Check, Inbox, Plus, Search, SearchX, X } from 'lucide-react'
+import { Check, Inbox, MessageCircle, Plus, Search, SearchX, X } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { Due } from '../components/bits'
-import { Badge, Button, Card, Empty, Field, Input, Modal, PageHeader, Segmented, Select, StatusSelect, Td, Th } from '../components/ui'
-import { itDueDate } from '../lib/deadlines'
-import { addDays, cn, currentGstPeriod, financialYear, fmtDate, inr, periodLabel, shiftPeriod, todayISO } from '../lib/format'
-import { GST_DATA_TYPES, GST_STATUS, SERVICE_KINDS, SIMPLE_STATUS, options, type Tone, type TrackerTab } from '../lib/meta'
-import { useCan, useStore } from '../store'
+import { Badge, Button, Card, Empty, Field, IconButton, Input, LinkButton, Modal, PageHeader, Segmented, Select, StatusSelect, Td, Textarea, Th } from '../components/ui'
+import { gstr1Due, itDueDate } from '../lib/deadlines'
+import { addDays, cn, currentGstPeriod, financialYear, fmtDate, inr, parseISO, periodLabel, shiftPeriod, todayISO, whatsappHref } from '../lib/format'
+import { FIRM_NAME, GST_DATA_TYPES, GST_STATUS, SERVICE_KINDS, SIMPLE_STATUS, fillTemplate, options, type Tone, type TrackerTab } from '../lib/meta'
+import { greetingFor } from '../lib/statusMessage'
+import { pickable, useCan, useCurrentUser, useStore, useTemplate } from '../store'
 import type { AuditFiling, Client, GstDataType, GstFiling, ItFiling, ServiceKind, SimpleStatus, TdsPayment } from '../types'
 
 /* ---------- Small inline editors shared by every tracker ---------- */
@@ -20,7 +21,7 @@ function AssigneeSelect({ value, onChange }: { value: string; onChange: (id: str
       aria-label="Assigned to"
       className="chevron h-7 max-w-24 appearance-none truncate rounded-md bg-transparent pr-5 pl-1.5 text-[13px] font-medium text-ink-700 hover:bg-ink-100 focus:ring-2 focus:ring-brand-500 focus:outline-none @max-3xl:-ml-1.5 @max-3xl:max-w-full"
     >
-      {employees.map((e) => (
+      {pickable(employees, value).map((e) => (
         <option key={e.id} value={e.id}>
           {e.name}
         </option>
@@ -352,6 +353,119 @@ const GST_VIEWS: Array<{ value: GstView; label: string }> = [
   { value: 'filed', label: 'Both filed' },
 ]
 
+/**
+ * Remind clients whose data for the month has not come in: one WhatsApp message each, in the firm's wording
+ * (Settings → WhatsApp messages). Nothing is sent from here; each opens in WhatsApp for the staff member to send,
+ * and opening it notes the reminder on the row.
+ */
+function DataReminders({ rows, onClose }: { rows: GstFiling[]; onClose: () => void }) {
+  const me = useCurrentUser()
+  const template = useTemplate('gst_data')
+  const clients = useClientMap()
+  const updateGst = useStore((s) => s.updateGst)
+  // The rows as they are now, with reminders just noted.
+  const gst = useStore((s) => s.gst)
+  const latest = (id: string) => gst.find((g) => g.id === id)
+  const today = todayISO()
+  const [picked, setPicked] = useState(rows[0]?.id)
+  const [edits, setEdits] = useState<Record<string, string>>({})
+
+  const draft = (g: GstFiling) => {
+    const c = clients.get(g.clientId)
+    return fillTemplate(template, {
+      greeting: greetingFor(c),
+      client: c?.name ?? 'your business',
+      month: periodLabel(g.period),
+      due: parseISO(gstr1Due(g.period, c?.gstFrequency)).toLocaleDateString('en-IN', { day: 'numeric', month: 'long' }),
+      staff: me.name,
+      firm: FIRM_NAME,
+    })
+  }
+  const textOf = (g: GstFiling) => edits[g.id] ?? draft(g)
+  const current = rows.find((g) => g.id === picked)
+  const sent = (id: string) => latest(id)?.dataReminded?.includes(today)
+  const note = (g: GstFiling) => {
+    const was = latest(g.id)?.dataReminded ?? []
+    if (!was.includes(today)) updateGst(g.id, { dataReminded: [...was, today] })
+    // On to the next one not yet reminded today.
+    const next = rows.find((r) => r.id !== g.id && !sent(r.id))
+    if (next) setPicked(next.id)
+  }
+  const done = rows.filter((g) => sent(g.id)).length
+
+  return (
+    <Modal
+      wide
+      title={rows.length === 1 ? 'Remind for GST data' : `Remind ${rows.length} clients for GST data`}
+      subtitle={`${periodLabel(rows[0].period)} · ${rows.length === 1 ? 'data not in yet' : `${done} of ${rows.length} reminded today`}`}
+      onClose={onClose}
+      footer={
+        <Button variant="primary" onClick={onClose}>
+          Done
+        </Button>
+      }
+    >
+      <div className="grid gap-4 sm:grid-cols-5">
+        <ul className={cn('scroll-thin space-y-1 overflow-y-auto sm:col-span-2 sm:max-h-[420px]', rows.length > 5 && 'max-h-56')}>
+          {rows.map((g) => {
+            const c = clients.get(g.clientId)
+            const number = c?.whatsapp || c?.phone
+            const times = latest(g.id)?.dataReminded ?? []
+            const last = times.at(-1)
+            return (
+              <li key={g.id}>
+                <div
+                  className={cn(
+                    'flex items-center gap-2 rounded-lg px-2 py-1.5 ring-1 ring-inset',
+                    g.id === picked ? 'bg-brand-50 ring-brand-200' : 'bg-white ring-ink-200 hover:bg-ink-50',
+                  )}
+                >
+                  <button type="button" onClick={() => setPicked(g.id)} className="min-w-0 flex-1 text-left">
+                    <span className="block truncate text-[13px] font-semibold text-ink-800">{c?.name ?? 'Unknown client'}</span>
+                    <span className={cn('block truncate text-xs', sent(g.id) ? 'font-semibold text-emerald-700' : 'text-ink-500')}>
+                      {sent(g.id) ? 'Reminded today' : last ? `Reminded ${fmtDate(last)}${times.length > 1 ? ` · ${times.length} times` : ''}` : number ? 'Not reminded yet' : 'No number saved'}
+                    </span>
+                  </button>
+                  {number ? (
+                    <LinkButton
+                      size="sm"
+                      variant={sent(g.id) ? 'ghost' : 'secondary'}
+                      icon={<MessageCircle size={14} className="text-emerald-600" />}
+                      href={`${whatsappHref(number)}?text=${encodeURIComponent(textOf(g))}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={() => note(g)}
+                      aria-label={`Open WhatsApp to remind ${c?.name ?? 'the client'}`}
+                    >
+                      {sent(g.id) ? 'Again' : 'Send'}
+                    </LinkButton>
+                  ) : (
+                    <Link to={`/clients/${g.clientId}`} className="shrink-0 px-1 text-xs font-semibold text-brand-700 hover:underline">
+                      Add number
+                    </Link>
+                  )}
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+        <div className="sm:col-span-3">
+          {current && (
+            <>
+              <Field label={`Message to ${clients.get(current.clientId)?.name ?? 'the client'}`} hint="read it before it goes">
+                <Textarea value={textOf(current)} onChange={(e) => setEdits({ ...edits, [current.id]: e.target.value })} rows={12} className="leading-relaxed" />
+              </Field>
+              <p className="mt-2 text-xs text-ink-500">
+                Send opens a chat with this typed in; it goes only when you press send in WhatsApp. The wording for every client is set in Settings → WhatsApp messages.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 function GstTracker() {
   const gst = useStore((s) => s.gst)
   const updateGst = useStore((s) => s.updateGst)
@@ -365,6 +479,7 @@ function GstTracker() {
   const [freq, setFreq] = useState<'M' | 'Q' | ''>('')
   const [dataType, setDataType] = useState<GstDataType | ''>('')
   const [owing, setOwing] = useState(false)
+  const [reminding, setReminding] = useState<GstFiling[]>()
   // Once the data is in, a return that was waiting for it can begin.
   const setDataIn = (g: GstFiling, dataIn?: string) =>
     updateGst(g.id, {
@@ -395,6 +510,9 @@ function GstTracker() {
   const live = rows.filter((g) => g.gstr1 !== 'na')
   const filed = (k: 'gstr1' | 'gstr3b') => live.filter((g) => g[k] === 'filed' || g[k] === 'nil').length
   const notIn = live.filter((g) => !g.dataIn).length
+  // Who to remind: the clients shown whose data has not come in, inactive ones aside.
+  const waiting = live.filter((g) => !g.dataIn && clients.get(g.clientId)?.active !== false)
+  const remindedToday = waiting.filter((g) => g.dataReminded?.includes(todayISO())).length
   const dirty = f.dirty || !!view || !!freq || !!dataType || owing
   const clear = () => {
     f.reset()
@@ -445,6 +563,19 @@ function GstTracker() {
           fees && { label: 'Fee balance', value: inr(rows.reduce((s, g) => s + Math.max(0, balance(g)), 0)), tone: 'amber' },
         ]}
       />
+      {waiting.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-ink-100 bg-amber-50/60 px-4 py-2 text-[13px] text-amber-900">
+          <p>
+            <span className="font-semibold">
+              {waiting.length} client{waiting.length === 1 ? ' has' : 's have'} not sent their data for {periodLabel(period)}
+            </span>
+            {remindedToday > 0 && ` · ${remindedToday} reminded today`}
+          </p>
+          <Button size="sm" icon={<MessageCircle size={14} className="text-emerald-600" />} onClick={() => setReminding(waiting)}>
+            Remind on WhatsApp
+          </Button>
+        </div>
+      )}
       {rows.length === 0 ? (
         <NoMatch onClear={clear} />
       ) : (
@@ -496,7 +627,28 @@ function GstTracker() {
                     }
                   />
                 </Td>
-                <Td label="Data in">{g.gstr1 === 'na' ? <span className="text-ink-300">—</span> : <DataIn value={g.dataIn} onChange={(d) => setDataIn(g, d)} />}</Td>
+                <Td label="Data in">
+                  {g.gstr1 === 'na' ? (
+                    <span className="text-ink-300">—</span>
+                  ) : (
+                    <>
+                      <span className="flex items-center">
+                        <DataIn value={g.dataIn} onChange={(d) => setDataIn(g, d)} />
+                        {!g.dataIn && (
+                          <IconButton label={`Remind ${c?.name ?? 'the client'} on WhatsApp`} onClick={() => setReminding([g])} className="size-7 text-emerald-600 hover:text-emerald-700">
+                            <MessageCircle size={15} />
+                          </IconButton>
+                        )}
+                      </span>
+                      {!g.dataIn && !!g.dataReminded?.length && (
+                        <span className="tnum block text-[11px] whitespace-nowrap text-ink-500">
+                          Reminded {fmtDate(g.dataReminded.at(-1)!)}
+                          {g.dataReminded.length > 1 && ` · ${g.dataReminded.length}×`}
+                        </span>
+                      )}
+                    </>
+                  )}
+                </Td>
                 <Td label="Data type">{g.gstr1 === 'na' ? <span className="text-ink-300">—</span> : <DataTypeSelect value={g.dataType} onChange={(dataType) => updateGst(g.id, { dataType })} />}</Td>
                 <Td label="GSTR-1">
                   <StatusSelect label="GSTR-1 status" value={g.gstr1} options={options(GST_STATUS)} onChange={(gstr1) => updateGst(g.id, { gstr1 })} />
@@ -528,8 +680,9 @@ function GstTracker() {
         </TableShell>
       )}
       <Footer shown={rows.length} total={all.length} dirty={dirty} onClear={clear}>
-        Data in, statuses{fees && ', fees received'} and remarks save as you change them. Marking the data in moves a return waiting for it to To begin.
+        Data in, statuses{fees && ', fees received'} and remarks save as you change them. Marking the data in moves a return waiting for it to To begin. The WhatsApp button beside Mark in reminds the client to send it.
       </Footer>
+      {reminding && <DataReminders rows={reminding} onClose={() => setReminding(undefined)} />}
     </Card>
   )
 }
@@ -1051,7 +1204,7 @@ function ServiceForm({ onClose, clientId = '' }: { onClose: () => void; clientId
     kind: SERVICE_KINDS[0] as ServiceKind,
     details: '',
     committedDate: addDays(todayISO(), 10),
-    assigneeId: employees.find((e) => e.id === 'e-anna')?.id ?? employees[0].id,
+    assigneeId: pickable(employees).find((e) => e.id === 'e-anna')?.id ?? pickable(employees)[0]?.id ?? '',
     // Someone who cannot see fees leaves it at nothing; a head fills it in from the tracker.
     fee: fees ? 3000 : 0,
   })
@@ -1113,7 +1266,7 @@ function ServiceForm({ onClose, clientId = '' }: { onClose: () => void; clientId
         </Field>
         <Field label="Assign to">
           <Select value={f.assigneeId} onChange={(e) => setF({ ...f, assigneeId: e.target.value })}>
-            {employees.map((e) => (
+            {pickable(employees).map((e) => (
               <option key={e.id} value={e.id}>
                 {e.name}
               </option>

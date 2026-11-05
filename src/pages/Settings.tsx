@@ -3,18 +3,21 @@ import { useMemo, useRef, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { Avatar, Badge, Button, Card, CardHeader, Empty, Field, IconButton, Input, Modal, PageHeader, Segmented, Select, Td, Textarea, Th } from '../components/ui'
 import { CHECKLISTS, checklistTitle } from '../data/requirements'
-import { cn, fmtDate, todayISO } from '../lib/format'
+import { gstr1Due } from '../lib/deadlines'
+import { cn, currentGstPeriod, fmtDate, periodLabel, todayISO } from '../lib/format'
 import { FIRM_NAME, PERMISSIONS, ROLE_PERMISSIONS, ROLES, TEMPLATES, TRACKERS, fillTemplate } from '../lib/meta'
 import { LIVE } from '../lib/supabase'
 import { managesLogins, permissionsOf, useCan, useCurrentUser, useScopes, useStore } from '../store'
 import type { Employee, Permission, ScopeDef, TemplateKey, TrackerTab } from '../types'
+import ChangeHistory from '../components/ChangeHistory'
 import Logins from './SettingsLogins'
 
-type Tab = 'scopes' | 'permissions' | 'messages' | 'logins'
+type Tab = 'scopes' | 'permissions' | 'messages' | 'history' | 'logins'
 const TABS: Array<{ value: Tab; label: string }> = [
   { value: 'scopes', label: 'Scopes of work' },
   { value: 'permissions', label: 'Permissions' },
   { value: 'messages', label: 'WhatsApp messages' },
+  { value: 'history', label: 'Change history' },
 ]
 /** For those allowed to give out logins, on the live system only. */
 const LOGINS_TAB = { value: 'logins' as Tab, label: 'Logins' }
@@ -381,9 +384,15 @@ function Permissions() {
 
 /* ---------- WhatsApp messages ---------- */
 
+const MAIN_WORDS: Record<TemplateKey, string> = { status: 'status lines', requirements: 'list of documents', gst_data: 'month the data is for' }
+
 /** Made-up values, so the preview reads like a real message without showing any client's details. */
 function sampleValues(key: TemplateKey, staff: string): Record<string, string> {
   const date = fmtDate(todayISO(), true)
+  if (key === 'gst_data') {
+    const period = currentGstPeriod()
+    return { greeting: 'Dear Sir/Madam', client: 'Sample Traders', month: periodLabel(period), due: fmtDate(gstr1Due(period, 'M')), staff, firm: FIRM_NAME }
+  }
   if (key === 'status')
     return {
       greeting: 'Dear Sir/Madam',
@@ -429,7 +438,7 @@ function TemplateEditor({ k }: { k: TemplateKey }) {
   const setTemplate = useStore((s) => s.setTemplate)
   const area = useRef<HTMLTextAreaElement>(null)
   const text = custom ?? meta.text
-  const main = k === 'status' ? 'status' : 'checklist'
+  const main = meta.main
 
   const insert = (field: string) => {
     const el = area.current
@@ -480,7 +489,7 @@ function TemplateEditor({ k }: { k: TemplateKey }) {
           </ul>
           {!text.includes(`{${main}}`) && (
             <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-[13px] font-semibold text-amber-800 ring-1 ring-amber-200">
-              Without {`{${main}}`} the message will not include the {main === 'status' ? 'status lines' : 'list of documents'}.
+              Without {`{${main}}`} the message will not include the {MAIN_WORDS[k]}.
             </p>
           )}
         </div>
@@ -530,13 +539,14 @@ export default function Settings() {
 
   return (
     <>
-      <PageHeader title="Settings" subtitle="Scopes of work, who can do what, and the wording of WhatsApp messages. Changes apply straight away." />
+      <PageHeader title="Settings" subtitle="Scopes of work, who can do what, the wording of WhatsApp messages, and who changed what. Changes apply straight away." />
       <div className="mb-4">
         <Segmented value={tab as Tab} onChange={(t) => navigate(`/settings/${t}`)} items={tabs} />
       </div>
       {tab === 'scopes' && <Scopes />}
       {tab === 'permissions' && <Permissions />}
       {tab === 'messages' && <Messages />}
+      {tab === 'history' && <ChangeHistory filters />}
       {tab === 'logins' && <Logins />}
     </>
   )

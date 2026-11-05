@@ -13,6 +13,7 @@ import type {
   ClientCategory,
   ClientDoc,
   Credential,
+  Dsc,
   Employee,
   GstDataType,
   GstFiling,
@@ -80,6 +81,7 @@ function employees(today: string): Employee[] {
     hue: number,
     responsibilities: string[],
     reportsTo?: string,
+    hours: [string, string] = ['09:30', '17:30'],
   ): Employee => {
     const i = n++
     // Placeholder dates so the demo has something to show. One birthday lands
@@ -91,6 +93,9 @@ function employees(today: string): Employee[] {
       joined: addDays(today, -(2400 - i * 260)),
       dob: `${BIRTH_YEARS[i]}${birthday.slice(4)}`,
       ...base(id, name, title, role, hue, responsibilities, reportsTo),
+      // Placeholder hours: most start at 9:30, a few keep other hours.
+      workFrom: hours[0],
+      workTo: hours[1],
     }
   }
   const base = (
@@ -114,8 +119,8 @@ function employees(today: string): Employee[] {
     active: true,
   })
   return [
-    mk(E.vijeesh, 'Vijeesh', 'CEO', 'ceo', 212, ['Audit head', 'TDS filing', 'IT filing']),
-    mk(E.praveen, 'Praveen', 'Operations Head', 'head', 262, ['Operations', 'Audit head', 'Task allocation'], E.vijeesh),
+    mk(E.vijeesh, 'Vijeesh', 'CEO', 'ceo', 212, ['Audit head', 'TDS filing', 'IT filing'], undefined, ['10:00', '18:00']),
+    mk(E.praveen, 'Praveen', 'Operations Head', 'head', 262, ['Operations', 'Audit head', 'Task allocation'], E.vijeesh, ['09:15', '17:15']),
     mk(
       E.anna,
       'Anna',
@@ -125,7 +130,7 @@ function employees(today: string): Employee[] {
       ['GST filing', 'MSME registration', 'LLP incorporation', 'Company nil audit'],
       E.praveen,
     ),
-    mk(E.husni, 'Husni', 'Trainee', 'trainee', 24, ['Book keeping'], E.anna),
+    mk(E.husni, 'Husni', 'Trainee', 'trainee', 24, ['Book keeping'], E.anna, ['09:45', '17:45']),
     mk(E.henna, 'Henna', 'Trainee', 'trainee', 162, ['GST registration'], E.anna),
     mk(E.afna, 'Afna', 'Trainee', 'trainee', 292, ['DSC'], E.anna),
     mk(E.hari, 'Harikrishna', 'Trainee', 'trainee', 190, ['GST filing'], E.anna),
@@ -223,6 +228,28 @@ const CLIENT_ROWS: ClientRow[] = [
   ['Dr. Vivek Raj', 'Individual', 'Medical practice', 'Thrissur', ['it_non_audit'], { profession: 'Doctor' }],
 ]
 
+/** Made-up people to speak to at the businesses, in client order; a few have none recorded yet. */
+const CONTACTS = ['Abdul Rasheed', 'Suresh Menon', 'Lakshmi Varma', '', 'Joseph Mathew', 'Shibu Thomas', 'Ajith Kumar', 'Nazeer P.', 'Deepa Raghavan', '', 'Anwar Sadath', 'Haris M.', 'Rajan Pillai', 'Sr. Mary John', 'Shaji K.', 'Vinod Nambiar', '', 'Rafeeq T.', 'Meera Krishnan', '', 'Unnikrishnan', 'Basheer V.', 'Nikhil Das', 'Priya Joseph', '']
+
+/**
+ * Sample certificates: a company or LLP has one per director or partner, others one for the owner.
+ */
+function sampleDscs(code: string, name: string, category: ClientCategory, contact: string, i: number, today: string): Dsc[] {
+  if (i % 3 === 2) return []
+  const holders = category === 'Company' || category === 'LLP' ? [contact || 'Director 1', 'Director 2'] : [category === 'Individual' ? name : contact || name]
+  // One ran out last week, two are due within the month, the rest are two months to two years away.
+  const days = (k: number) => (i === 0 && k === 0 ? -9 : i === 4 && k === 0 ? 12 : i === 9 && k === 1 ? 26 : 60 + ((i * 97 + k * 151) % 640))
+  return holders.map((holder, k) => ({
+    id: `${code}-dsc${k}`,
+    holder,
+    contactPerson: contact || undefined,
+    contactPhone: contact ? `90002 ${String(10000 + i * 7 + k).slice(-5)}` : undefined,
+    expiry: addDays(today, days(k)),
+    password: `Sample@dsc${code.slice(-4)}${k}`,
+    note: k === 0 && i % 4 === 0 ? 'Token kept at the office' : undefined,
+  }))
+}
+
 function clients(today: string): Client[] {
   return CLIENT_ROWS.map(([name, category, business, place, rowScopes, extra], i) => {
     const n = 1001 + i
@@ -282,6 +309,7 @@ function clients(today: string): Client[] {
       })
 
     const phone = `90000 ${String(10000 + n).slice(-5)}`
+    const contact = category === 'Individual' ? '' : CONTACTS[i % CONTACTS.length]
 
     return {
       id: `c-${n}`,
@@ -299,10 +327,12 @@ function clients(today: string): Client[] {
       pan,
       tan: hasTds ? tan : undefined,
       gstFrequency: hasGst ? (extra?.freq ?? 'M') : undefined,
+      contactPerson: contact || undefined,
       active: !extra?.inactive,
       scopes,
       scopeDetails: extra?.details,
       credentials,
+      dscs: sampleDscs(code, name, category, contact, i, today),
       documents,
       requirementsSent,
       clarifications,
@@ -644,6 +674,8 @@ function gst(cs: Client[], today: string): GstFiling[] {
         fee: c.active ? fee : 0,
         received: c.active ? received : 0,
         remark: c.active ? note : 'Work lost — client moved to another consultant',
+        // Clients whose data is late have had a reminder or two.
+        dataReminded: isCurrent && c.active && !hasData ? [addDays(today, -3), ...(i % 2 ? [addDays(today, -1)] : [])].filter((d) => d > `${shiftPeriod(period, 1)}-00`) : undefined,
       })
     }
   })
@@ -916,6 +948,9 @@ const OVERTIME_CREW = new Set<string>([E.anna, E.hari, E.ramees, E.husni])
  * The last few months up to today, with time in and out. Sundays and holidays are off, apart from the GST team's
  * Sunday before the 11th; today is partly marked and nobody has left yet.
  */
+/** The on-time tick as the app suggests it: in by the start of their working hours. */
+const onTime = (e: Employee, timeIn: string): Pick<AttendanceEntry, 'onTime'> => (e.workFrom ? { onTime: timeIn <= e.workFrom } : {})
+
 function attendance(emps: Employee[], today: string, off: OffDays): Attendance {
   const out: Attendance = {}
   emps.forEach((e, ei) => {
@@ -939,16 +974,16 @@ function attendance(emps: Employee[], today: string, off: OffDays): Attendance {
       // In between 9:05 and 9:50, out between 5:30 and 6:15; a half day ends at lunch.
       const timeIn = hhmm(545 + ((k * 7) % 46))
       if (day === today) {
-        days[day] = { mark, in: timeIn }
+        days[day] = { mark, in: timeIn, ...onTime(e, timeIn) }
         continue
       }
       // On the staff cut-offs (the 10th and the 19th) the GST team works until 8 to 9:30 pm; time after 6 pm is overtime.
       if (crew && mark === 'P' && (dd === 10 || dd === 19)) {
         const late = 1200 + ((k * 3) % 4) * 30
-        days[day] = { mark, in: timeIn, out: hhmm(late), ot: late - 1080 }
+        days[day] = { mark, in: timeIn, out: hhmm(late), ot: late - 1080, ...onTime(e, timeIn) }
         continue
       }
-      days[day] = { mark, in: timeIn, out: mark === 'H' ? hhmm(780 + ((k * 3) % 20)) : hhmm(1050 + ((k * 11) % 46)) }
+      days[day] = { mark, in: timeIn, out: mark === 'H' ? hhmm(780 + ((k * 3) % 20)) : hhmm(1050 + ((k * 11) % 46)), ...onTime(e, timeIn) }
     }
     out[e.id] = days
   })

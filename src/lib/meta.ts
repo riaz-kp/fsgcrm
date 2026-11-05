@@ -250,18 +250,19 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
 
 /* ---------- WhatsApp templates ---------- */
 
-export const TEMPLATES: Record<TemplateKey, { label: string; hint: string; fields: Array<{ key: string; hint: string }>; text: string }> = {
+export const TEMPLATES: Record<TemplateKey, { label: string; hint: string; fields: Array<{ key: string; hint: string }>; main: string; text: string }> = {
   status: {
     label: 'Work status',
     hint: 'Send status on a client page drafts this, with the lines the staff member ticks in place of {status}.',
     fields: [
-      { key: 'greeting', hint: 'Dear Sir/Madam, or Dear <name> for individuals' },
+      { key: 'greeting', hint: 'Dear <name> for individuals and contact persons, else Dear Sir/Madam' },
       { key: 'client', hint: 'Client name' },
       { key: 'date', hint: "Today's date" },
       { key: 'status', hint: 'The ticked status lines, one per line' },
       { key: 'staff', hint: 'Name of the person sending it' },
       { key: 'firm', hint: 'Fin Savvy Consultors LLP' },
     ],
+    main: 'status',
     text: `{greeting},
 
 Status of the work for {client} as on {date}:
@@ -278,13 +279,14 @@ Regards,
     label: 'Documents required',
     hint: 'Send on WhatsApp on the Requirements page drafts this, with the ticked checklist in place of {checklist}.',
     fields: [
-      { key: 'greeting', hint: 'Dear Sir/Madam, or Dear <name> for individuals' },
+      { key: 'greeting', hint: 'Dear <name> for individuals and contact persons, else Dear Sir/Madam' },
       { key: 'client', hint: 'Client name, or "you" when no client is picked' },
       { key: 'services', hint: 'The services picked, e.g. GST registration (Partnership)' },
       { key: 'checklist', hint: 'The ticked documents, grouped' },
       { key: 'staff', hint: 'Name of the person sending it' },
       { key: 'firm', hint: 'Fin Savvy Consultors LLP' },
     ],
+    main: 'checklist',
     text: `{greeting},
 
 For {services}, please send us the following:
@@ -292,6 +294,28 @@ For {services}, please send us the following:
 {checklist}
 
 All mobile numbers given should be linked to Aadhaar.
+
+Regards,
+{staff}
+{firm}`,
+  },
+  gst_data: {
+    label: 'GST data reminder',
+    hint: 'Remind on the GST tracker drafts this for each client whose data for the month has not come in.',
+    fields: [
+      { key: 'greeting', hint: 'Dear <name> for individuals and contact persons, else Dear Sir/Madam' },
+      { key: 'client', hint: 'Client name' },
+      { key: 'month', hint: 'The return period, e.g. October 2026' },
+      { key: 'due', hint: 'When GSTR-1 for it is due, e.g. 11 November' },
+      { key: 'staff', hint: 'Name of the person sending it' },
+      { key: 'firm', hint: 'Fin Savvy Consultors LLP' },
+    ],
+    main: 'month',
+    text: `{greeting},
+
+We have not yet received the GST data of {client} for {month}. Please send the sales and purchase bills, or the Tally backup or Excel file, at the earliest so that we can file on time. GSTR-1 is due on {due}.
+
+Please ignore this message if you have already sent it.
 
 Regards,
 {staff}

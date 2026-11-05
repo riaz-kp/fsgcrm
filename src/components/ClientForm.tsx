@@ -75,6 +75,7 @@ export default function ClientForm({ client, onClose, onSaved }: { client?: Clie
     pan: client?.pan ?? '',
     tan: client?.tan ?? '',
     gstFrequency: client?.gstFrequency ?? ('M' as 'M' | 'Q'),
+    contactPerson: client?.contactPerson ?? '',
     scopes: client?.scopes ?? ([] as ScopeKey[]),
     scopeDetails: client?.scopeDetails ?? ({} as ScopeDetails),
   })
@@ -88,6 +89,8 @@ export default function ClientForm({ client, onClose, onSaved }: { client?: Clie
       name: f.name.trim(),
       category: f.category,
       profession: f.category === 'Individual' ? f.profession.trim() || undefined : undefined,
+      // An individual is spoken to directly; a business through someone there.
+      contactPerson: f.category === 'Individual' ? undefined : f.contactPerson.trim() || undefined,
       business: f.business.trim(),
       place: f.place.trim(),
       phone: f.phone.trim(),
@@ -143,6 +146,11 @@ export default function ClientForm({ client, onClose, onSaved }: { client?: Clie
         ) : (
           <Field label="Nature of business">
             <Input value={f.business} onChange={(e) => set('business', e.target.value)} placeholder="e.g. Textile retail" />
+          </Field>
+        )}
+        {f.category !== 'Individual' && (
+          <Field label="Contact person" hint="who to speak to" className="sm:col-span-2">
+            <Input value={f.contactPerson} onChange={(e) => set('contactPerson', e.target.value)} placeholder="e.g. the owner, a partner or the accountant" />
           </Field>
         )}
         <Field label="Phone">

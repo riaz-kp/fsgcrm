@@ -1,10 +1,10 @@
-import { CalendarX2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { CalendarX2, Check, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
-import { attendanceTotals, monthDays, offDayName, timing, toHHMM, workingDays } from '../lib/attendance'
+import { attendanceTotals, minutesLate, monthDays, offDayName, timing, toHHMM, workingDays, workingHours } from '../lib/attendance'
 import { cn, fmtDate, fmtDuration, fmtTime, fmtWeekday, minutesBetween, periodLabel, shiftPeriod, todayISO } from '../lib/format'
 import { ATTENDANCE, ATTENDANCE_ORDER, type Tone } from '../lib/meta'
 import { useStore } from '../store'
-import type { AttendanceMark, Employee } from '../types'
+import type { AttendanceEntry, AttendanceMark, Employee } from '../types'
 import { Badge, Card, CardHeader, Empty, IconButton, StatusSelect, Td, Th } from './ui'
 
 export function TimeInput({ value, onChange, label, disabled }: { value?: string; onChange: (v: string) => void; label: string; disabled?: boolean }) {
@@ -45,6 +45,39 @@ export function OtInput({ minutes, onChange, label, disabled }: { minutes?: numb
       />
       <span className={cn('text-xs font-semibold', disabled ? 'text-ink-300' : 'text-ink-500')}>h</span>
     </span>
+  )
+}
+
+const lateBy = (minutes: number) => (minutes < 60 ? `${minutes} min` : fmtDuration(minutes))
+
+/**
+ * The on-time tick for a day someone worked. It is set from the time in when one is entered (in by the start of
+ * their working hours), and clicking it changes it by hand: ticked is on time, unticked late.
+ */
+export function OnTimeToggle({ entry, workFrom, name, onChange }: { entry?: AttendanceEntry; workFrom?: string; name: string; onChange: (onTime: boolean) => void }) {
+  const away = !entry || entry.mark === 'L'
+  const on = !away && entry.onTime === true
+  const late = !away && entry.onTime === false
+  const by = minutesLate(entry?.in, workFrom)
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={on}
+      aria-label={`${name} on time`}
+      disabled={away}
+      onClick={() => onChange(!on)}
+      title={away ? 'Mark them present or half day first' : on ? 'On time. Click if they came in late.' : 'Click to tick on time'}
+      className={cn(
+        'inline-flex h-7 items-center gap-1.5 rounded-md px-1.5 text-xs font-semibold whitespace-nowrap ring-1 transition-colors ring-inset disabled:opacity-40',
+        on ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : late ? 'bg-amber-50 text-amber-800 ring-amber-200' : 'bg-white text-ink-500 ring-ink-200 hover:bg-ink-50',
+      )}
+    >
+      <span className={cn('flex size-4 items-center justify-center rounded', on ? 'bg-emerald-600 text-white' : 'bg-white ring-1 ring-ink-300 ring-inset')}>
+        {on && <Check size={11} strokeWidth={3.5} />}
+      </span>
+      {late ? (by ? `Late ${lateBy(by)}` : 'Late') : 'On time'}
+    </button>
   )
 }
 
@@ -91,6 +124,7 @@ export function AttendancePanel({ emp, canEdit }: { emp: Employee; canEdit: bool
   const setAttendance = useStore((s) => s.setAttendance)
   const setAttendanceTime = useStore((s) => s.setAttendanceTime)
   const setOvertime = useStore((s) => s.setOvertime)
+  const setOnTime = useStore((s) => s.setOnTime)
   const today = todayISO()
   const [month, setMonth] = useState(today.slice(0, 7))
 
@@ -130,7 +164,7 @@ export function AttendancePanel({ emp, canEdit }: { emp: Employee; canEdit: bool
             {unmarked > 0 && <span className="font-semibold text-amber-700"> · {unmarked} not marked</span>}
           </p>
         </div>
-        <dl className="grid grid-cols-2 divide-ink-100 sm:grid-cols-4 lg:grid-cols-7 lg:divide-x">
+        <dl className="grid grid-cols-2 divide-ink-100 sm:grid-cols-4 xl:grid-cols-8 xl:divide-x">
           <Tile label="Working days" value={total} sub={current ? `${soFar} so far this month` : `${all.length - total} days off`} />
           <Tile
             label="Days worked"
@@ -140,6 +174,12 @@ export function AttendancePanel({ emp, canEdit }: { emp: Employee; canEdit: bool
           <Tile label="Present" value={t.P} tone="text-emerald-700" sub={t.P === 1 ? 'full day' : 'full days'} />
           <Tile label="Half days" value={t.H} tone={t.H ? 'text-amber-700' : undefined} />
           <Tile label="Leave" value={t.L} tone={t.L ? 'text-violet-700' : undefined} sub={`${y.L} in ${year}`} />
+          <Tile
+            label="On time"
+            value={t.onTime + t.late ? t.onTime : '—'}
+            tone={t.onTime ? 'text-emerald-700' : undefined}
+            sub={`${t.onTime + t.late ? `of ${t.onTime + t.late} days${t.late ? ` · ${t.late} late` : ''}` : 'no ticks yet'} · ${workingHours(emp) ? `hours ${workingHours(emp)}` : 'hours not set'}`}
+          />
           <Tile label="Overtime" value={t.ot ? fmtDuration(t.ot) : '—'} tone={t.ot ? 'text-brand-700' : undefined} sub={y.ot ? `${fmtDuration(y.ot)} in ${year}` : 'none recorded'} />
           <Tile
             label="Hours worked"
@@ -153,13 +193,14 @@ export function AttendancePanel({ emp, canEdit }: { emp: Employee; canEdit: bool
         <Card className="lg:col-span-3 lg:self-start">
           <CardHeader title="Day by day" hint={canEdit ? 'Change a status, a time or overtime and it is saved' : 'Marked by your heads'} />
           <div className="@container overflow-x-auto">
-            <table className="stack w-full min-w-[600px] text-sm">
+            <table className="stack w-full min-w-[700px] text-sm">
               <thead className="border-y border-ink-100 bg-ink-50/60">
                 <tr>
                   <Th>Date</Th>
                   <Th>Status</Th>
                   <Th>Time in</Th>
                   <Th>Time out</Th>
+                  <Th>On time</Th>
                   <Th>OT</Th>
                   <Th align="right">Hours</Th>
                 </tr>
@@ -180,7 +221,7 @@ export function AttendancePanel({ emp, canEdit }: { emp: Employee; canEdit: bool
                     return (
                       <tr key={d.date} className="bg-ink-50/50 text-ink-400">
                         {dateCell}
-                        <td data-label="Status" colSpan={5} className="px-3 py-2.5 text-[13px]">
+                        <td data-label="Status" colSpan={6} className="px-3 py-2.5 text-[13px]">
                           Off · {d.off}
                         </td>
                       </tr>
@@ -211,6 +252,9 @@ export function AttendancePanel({ emp, canEdit }: { emp: Employee; canEdit: bool
                           <Td label="Time out">
                             <TimeInput label={`Time out on ${d.date}`} value={entry?.out} disabled={entry?.mark === 'L'} onChange={(v) => setAttendanceTime(emp.id, d.date, { out: v })} />
                           </Td>
+                          <Td label="On time">
+                            <OnTimeToggle entry={entry} workFrom={emp.workFrom} name={`${emp.name} on ${d.date}`} onChange={(v) => setOnTime(emp.id, d.date, v)} />
+                          </Td>
                           <Td label="OT">
                             <OtInput label={`Overtime on ${d.date}, in hours`} minutes={entry?.ot} disabled={away} onChange={(m) => setOvertime(emp.id, d.date, m)} />
                           </Td>
@@ -222,6 +266,17 @@ export function AttendancePanel({ emp, canEdit }: { emp: Employee; canEdit: bool
                           </Td>
                           <Td label="Time out" className="tnum text-ink-700">
                             {entry?.out ? fmtTime(entry.out) : <span className="text-ink-300">—</span>}
+                          </Td>
+                          <Td label="On time" className="text-[13px] font-semibold whitespace-nowrap">
+                            {!entry || away || entry.onTime === undefined ? (
+                              <span className="font-normal text-ink-300">—</span>
+                            ) : entry.onTime ? (
+                              <span className="inline-flex items-center gap-1 text-emerald-700">
+                                <Check size={14} strokeWidth={3} /> On time
+                              </span>
+                            ) : (
+                              <span className="text-amber-700">{minutesLate(entry.in, emp.workFrom) ? `Late ${lateBy(minutesLate(entry.in, emp.workFrom))}` : 'Late'}</span>
+                            )}
                           </Td>
                           <Td label="OT" className="tnum font-semibold text-brand-700">
                             {entry?.ot ? fmtDuration(entry.ot) : <span className="font-normal text-ink-300">—</span>}
@@ -256,6 +311,9 @@ export function AttendancePanel({ emp, canEdit }: { emp: Employee; canEdit: bool
                       <span title="Overtime">OT</span>
                     </Th>
                     <Th align="center">
+                      <span title="Days on time">On time</span>
+                    </Th>
+                    <Th align="center">
                       <span title="Days worked of the working days">Days</span>
                     </Th>
                     <Th align="right">Hours</Th>
@@ -277,6 +335,7 @@ export function AttendancePanel({ emp, canEdit }: { emp: Employee; canEdit: bool
                           </Td>
                         ))}
                         <Td className="tnum text-center whitespace-nowrap text-brand-700">{mt.ot ? fmtDuration(mt.ot) : <span className="text-ink-300">—</span>}</Td>
+                        <Td className="tnum text-center whitespace-nowrap text-emerald-700">{mt.onTime + mt.late ? mt.onTime : <span className="text-ink-300">—</span>}</Td>
                         <Td className="tnum text-center whitespace-nowrap">
                           <span className="font-bold text-ink-900">{mt.worked}</span>
                           <span className="text-xs text-ink-400">/{workingDays(m, offDays, today)}</span>

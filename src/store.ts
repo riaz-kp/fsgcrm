@@ -31,7 +31,7 @@ interface Actions {
   setCurrentUser: (id: string) => void
   resetDemo: () => void
 
-  addClient: (c: Omit<Client, 'id' | 'code' | 'since' | 'requirementsSent' | 'clarifications' | 'transactions'>) => string
+  addClient: (c: Omit<Client, 'id' | 'code' | 'since' | 'requirementsSent' | 'clarifications' | 'transactions' | 'dscs'>) => string
   updateClient: (id: string, patch: Partial<Client>) => void
 
   addLead: (l: Omit<Lead, 'id' | 'createdAt' | 'remarks'>, note?: string) => string
@@ -42,6 +42,8 @@ interface Actions {
   addTask: (t: Omit<Task, 'id' | 'createdAt' | 'remarks' | 'assignedById'>) => string
   updateTask: (id: string, patch: Partial<Task>) => void
   addTaskRemark: (id: string, text: string) => void
+  /** Hand tasks to someone else, with a remark on each saying who had it and why. */
+  reassignTasks: (ids: string[], to: string, note?: string) => void
 
   updateGst: (id: string, patch: Partial<GstFiling>) => void
   updateTds: (id: string, patch: Partial<TdsFiling>) => void
@@ -82,6 +84,8 @@ interface Actions {
   setAttendanceTime: (employeeId: string, date: string, patch: Pick<AttendanceEntry, 'in' | 'out'>) => void
   /** Overtime in minutes for a day someone worked; nothing or 0 clears it. */
   setOvertime: (employeeId: string, date: string, minutes?: number) => void
+  /** Whether they came in on time on a day they worked; nothing clears it. */
+  setOnTime: (employeeId: string, date: string, onTime?: boolean) => void
   /** Make a day off for everyone, with an optional name; `null` makes it a working day again. */
   setOffDay: (date: string, name: string | null) => void
 }
@@ -153,7 +157,7 @@ export const useStore = create<State>()(
         const id = uid('c')
         set({
           clients: [
-            { ...c, id, code: `FSG-${next}`, since: todayISO(), requirementsSent: {}, clarifications: [], transactions: [] },
+            { ...c, id, code: `FSG-${next}`, since: todayISO(), requirementsSent: {}, clarifications: [], transactions: [], dscs: [] },
             ...clients,
           ],
         })
@@ -187,6 +191,8 @@ export const useStore = create<State>()(
           place: lead.place,
           phone: lead.phone,
           whatsapp: lead.whatsapp,
+          // The person the enquiry came from is who to speak to at a business.
+          contactPerson: lead.category !== 'Individual' && lead.contact.trim() ? lead.contact.trim() : undefined,
           email: '',
           active: true,
           scopes: lead.scopes,
@@ -215,6 +221,19 @@ export const useStore = create<State>()(
               : t,
           ),
         })),
+
+      reassignTasks: (ids, to, note) =>
+        set((s) => {
+          const name = (id: string) => s.employees.find((e) => e.id === id)?.name ?? 'someone'
+          const at = todayISO()
+          return {
+            tasks: s.tasks.map((t) => {
+              if (!ids.includes(t.id) || t.assigneeId === to) return t
+              const text = `Reassigned from ${name(t.assigneeId)} to ${name(to)}.${note?.trim() ? ` ${note.trim()}` : ''}`
+              return { ...t, assigneeId: to, remarks: [...t.remarks, { id: uid('r'), by: s.currentUserId, at, text }] }
+            }),
+          }
+        }),
 
       updateGst: (id, patch) => set((s) => ({ gst: patchIn(s.gst, id, patch) })),
       updateTds: (id, patch) => set((s) => ({ tds: patchIn(s.tds, id, patch) })),
@@ -298,7 +317,7 @@ export const useStore = create<State>()(
           const days = { ...s.attendance[employeeId] }
           if (!mark) delete days[date]
           else if (mark === 'P' || mark === 'H') days[date] = { ...days[date], mark }
-          // A day on leave keeps no times or overtime.
+          // A day on leave keeps no times, overtime or on-time tick.
           else days[date] = { mark }
           return { attendance: { ...s.attendance, [employeeId]: days } }
         }),
@@ -307,6 +326,9 @@ export const useStore = create<State>()(
           const days = { ...s.attendance[employeeId] }
           const was = days[date]
           const entry: AttendanceEntry = { ...was, mark: was?.mark === 'H' ? 'H' : 'P', ...patch }
+          // A new time in says whether they were on time, going by their own hours; it can still be changed by hand.
+          const from = s.employees.find((e) => e.id === employeeId)?.workFrom
+          if ('in' in patch && patch.in && from) entry.onTime = patch.in <= from
           if (!entry.in) delete entry.in
           if (!entry.out) delete entry.out
           days[date] = entry
@@ -320,6 +342,14 @@ export const useStore = create<State>()(
           if (!entry.ot) delete entry.ot
           return { attendance: { ...s.attendance, [employeeId]: { ...s.attendance[employeeId], [date]: entry } } }
         }),
+      setOnTime: (employeeId, date, onTime) =>
+        set((s) => {
+          const was = s.attendance[employeeId]?.[date]
+          if (!was || was.mark === 'L') return {}
+          const entry: AttendanceEntry = { ...was, onTime }
+          if (onTime === undefined) delete entry.onTime
+          return { attendance: { ...s.attendance, [employeeId]: { ...s.attendance[employeeId], [date]: entry } } }
+        }),
       setOffDay: (date, name) =>
         set((s) => {
           const offDays = { ...s.offDays }
@@ -331,22 +361,34 @@ export const useStore = create<State>()(
     {
       name: 'fsg-crm-demo',
       storage: createJSONStorage(() => (LIVE ? nowhere : localStorage)),
-      version: 6,
+      version: 7,
       migrate: (saved, version) => {
-        // From the last version, keep what people entered: absent days become leave, and the new
-        // off days come in from the sample data when the saved state is merged.
+        // Anything older had a different shape; it is replaced with fresh sample data.
+        if (version < 5) return { ...buildSeed(), currentUserId: 'e-praveen' } as State
+        let s = saved as State
+        // 5 -> 6: keep what people entered: absent days become leave, and the new off days come in from the
+        // sample data when the saved state is merged.
         if (version === 5) {
-          const s = saved as State
           const attendance = Object.fromEntries(
             Object.entries(s.attendance ?? {}).map(([id, days]) => [
               id,
               Object.fromEntries(Object.entries(days).map(([date, e]) => [date, (e.mark as string) === 'A' ? { mark: 'L' as const } : e])),
             ]),
           )
-          return { ...s, attendance }
+          s = { ...s, attendance }
         }
-        // Anything older had a different shape; it is replaced with fresh sample data.
-        return { ...buildSeed(), currentUserId: 'e-praveen' } as State
+        // 6 -> 7: clients get their DSCs and team members their working hours, from the sample data where it has them.
+        if (version <= 6) {
+          const seed = buildSeed()
+          const seedClient = new Map(seed.clients.map((c) => [c.id, c]))
+          const seedEmp = new Map(seed.employees.map((e) => [e.id, e]))
+          s = {
+            ...s,
+            clients: s.clients.map((c) => ({ ...c, dscs: c.dscs ?? seedClient.get(c.id)?.dscs ?? [], contactPerson: c.contactPerson ?? seedClient.get(c.id)?.contactPerson })),
+            employees: s.employees.map((e) => (e.workFrom ? e : { ...e, workFrom: seedEmp.get(e.id)?.workFrom, workTo: seedEmp.get(e.id)?.workTo })),
+          }
+        }
+        return s
       },
     },
   ),
@@ -363,6 +405,14 @@ export function useCurrentUser(): Employee {
 /** Heads and the CEO lead the firm and are who people report to. What anyone may do is a separate matter: see `can`. */
 export function isHead(e: Employee): boolean {
   return e.role === 'ceo' || e.role === 'head'
+}
+
+/**
+ * The people work can be given to: everyone active, and anyone in `keep` (who has it now, say) even after they
+ * were made inactive, so a list still shows who that is.
+ */
+export function pickable(employees: Employee[], ...keep: Array<string | undefined>): Employee[] {
+  return employees.filter((e) => e.active || keep.includes(e.id))
 }
 
 /** What a person may do: what was set for them in Settings, or else what their role gives. */

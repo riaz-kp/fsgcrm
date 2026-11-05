@@ -1,6 +1,7 @@
 import { LogIn } from 'lucide-react'
 import { useState, type FormEvent, type ReactNode } from 'react'
-import { Button, Field, Input } from '../components/ui'
+import { Button, Field, Input, PasswordInput } from '../components/ui'
+import { noteSignIn } from '../lib/changeLog'
 import { signInEmail } from '../lib/logins'
 import { supabase } from '../lib/supabase'
 
@@ -44,6 +45,7 @@ export default function SignIn() {
     try {
       const { error } = await supabase.auth.signInWithPassword({ email: signInEmail(username), password })
       if (error) setError(explain(error.message))
+      else void noteSignIn()
     } catch (err) {
       setError(explain(err instanceof Error ? err.message : String(err)))
     } finally {
@@ -58,7 +60,7 @@ export default function SignIn() {
           <Input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoFocus required />
         </Field>
         <Field label="Password">
-          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
+          <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
         </Field>
         {error && (
           <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-[13px] text-rose-700 ring-1 ring-rose-200">

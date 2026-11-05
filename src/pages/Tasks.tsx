@@ -1,33 +1,106 @@
-import { CheckCircle2, ListTodo, Plus, RotateCcw, Search, Send, Undo2, X } from 'lucide-react'
+import { ArrowRightLeft, CheckCircle2, ListTodo, Plus, RotateCcw, Search, Send, Undo2, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Due, RecurringTag } from '../components/bits'
 import { Avatar, Badge, Button, Card, Drawer, Empty, Field, IconButton, Input, Modal, PageHeader, Person, Progress, Segmented, Select, StatusSelect, Td, Textarea, Th, TONE_BAR } from '../components/ui'
 import { addDays, cn, daysUntil, fmtDate, todayISO } from '../lib/format'
 import { DEPARTMENTS, PRIORITIES, PRIORITY_ORDER, TASK_STATUS, TASK_STATUS_ORDER, options } from '../lib/meta'
-import { can, useCurrentUser, useLookup, useStore, useVisibleTasks } from '../store'
+import { can, pickable, useCurrentUser, useLookup, useStore, useVisibleTasks } from '../store'
 import type { Department, Priority, Recurrence, Task, TaskStatus } from '../types'
 
 function progressTone(t: Task) {
   return t.status === 'completed' ? 'green' : daysUntil(t.dueDate) < 0 ? 'red' : t.status === 'in_review' ? 'amber' : 'blue'
 }
 
+/** Hand one task, or all of someone's open tasks, to another person. Each task gets a remark saying so. */
+function ReassignForm({ tasks, onClose }: { tasks: Task[]; onClose: () => void }) {
+  const employees = useStore((s) => s.employees)
+  const reassignTasks = useStore((s) => s.reassignTasks)
+  const { emp } = useLookup()
+  const from = [...new Set(tasks.map((t) => t.assigneeId))]
+  const people = pickable(employees).filter((e) => !(from.length === 1 && e.id === from[0]))
+  const [to, setTo] = useState('')
+  const [note, setNote] = useState('')
+  const one = tasks.length === 1
+  const who = from.length === 1 ? (emp(from[0])?.name ?? 'someone') : 'several people'
+
+  const save = () => {
+    if (!to) return
+    reassignTasks(
+      tasks.map((t) => t.id),
+      to,
+      note,
+    )
+    onClose()
+  }
+
+  return (
+    <Modal
+      title={one ? 'Reassign task' : `Reassign ${tasks.length} open tasks`}
+      subtitle={one ? `${tasks[0].title} · now with ${who}` : `Now with ${who}. Progress, due dates and remarks stay as they are.`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" icon={<ArrowRightLeft size={15} />} onClick={save} disabled={!to}>
+            Reassign
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <Field label="Give to">
+          <Select value={to} onChange={(e) => setTo(e.target.value)} autoFocus>
+            <option value="" disabled>
+              Choose a person
+            </option>
+            {people.map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.name} — {e.title}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Why" hint="optional, goes in the remarks">
+          <Input value={note} onChange={(e) => setNote(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && save()} placeholder="e.g. On leave this week" />
+        </Field>
+        {!one && (
+          <ul className="scroll-thin max-h-48 space-y-1 overflow-y-auto rounded-lg bg-ink-50 p-2 text-[13px] ring-1 ring-ink-200/70">
+            {tasks.map((t) => (
+              <li key={t.id} className="flex items-center justify-between gap-3 px-1">
+                <span className="truncate font-semibold text-ink-800">{t.title}</span>
+                <span className="shrink-0 text-xs">
+                  <Due date={t.dueDate} compact />
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="text-xs text-ink-500">Each task gets a remark saying who it moved from and to, so the new person sees why.</p>
+      </div>
+    </Modal>
+  )
+}
+
 function TaskForm({ onClose }: { onClose: () => void }) {
   const addTask = useStore((s) => s.addTask)
-  const employees = useStore((s) => s.employees)
+  const everyone = useStore((s) => s.employees)
+  const employees = useMemo(() => pickable(everyone), [everyone])
   const clients = useStore((s) => s.clients)
   const [f, setF] = useState({
     title: '',
     description: '',
     clientId: '',
     department: 'gst' as Department,
-    assigneeId: employees.find((e) => e.role === 'trainee')?.id ?? employees[0].id,
+    assigneeId: employees.find((e) => e.role === 'trainee')?.id ?? employees[0]?.id ?? '',
     priority: 'medium' as Priority,
     dueDate: addDays(todayISO(), 7),
     recurring: '' as Recurrence | '',
   })
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((p) => ({ ...p, [k]: v }))
-  const valid = f.title.trim() && f.dueDate
+  const valid = f.title.trim() && f.dueDate && f.assigneeId
 
   const save = () => {
     if (!valid) return
@@ -133,9 +206,9 @@ function TaskDrawer({ task, onClose }: { task: Task; onClose: () => void }) {
   const canWork = (mine || head) && task.status !== 'completed'
   const updateTask = useStore((s) => s.updateTask)
   const addTaskRemark = useStore((s) => s.addTaskRemark)
-  const employees = useStore((s) => s.employees)
   const { emp, client } = useLookup()
   const [text, setText] = useState('')
+  const [reassigning, setReassigning] = useState(false)
   const c = client(task.clientId)
 
   const remark = (fallback?: string) => {
@@ -195,17 +268,13 @@ function TaskDrawer({ task, onClose }: { task: Task; onClose: () => void }) {
         <dl className="grid grid-cols-2 gap-x-4 gap-y-4 px-5 py-4 text-sm">
           <div>
             <dt className="mb-1 text-xs text-ink-500">Assigned to</dt>
-            <dd>
-              {head && task.status !== 'completed' ? (
-                <Select value={task.assigneeId} onChange={(e) => updateTask(task.id, { assigneeId: e.target.value })} small aria-label="Assignee">
-                  {employees.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.name}
-                    </option>
-                  ))}
-                </Select>
-              ) : (
-                <Person emp={emp(task.assigneeId)} />
+            <dd className="flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1">
+              <Person emp={emp(task.assigneeId)} />
+              {emp(task.assigneeId)?.active === false && <Badge>Inactive</Badge>}
+              {head && task.status !== 'completed' && (
+                <Button size="sm" variant="ghost" icon={<ArrowRightLeft size={14} />} onClick={() => setReassigning(true)} className="-ml-1 text-brand-700">
+                  Reassign
+                </Button>
               )}
             </dd>
           </div>
@@ -334,6 +403,7 @@ function TaskDrawer({ task, onClose }: { task: Task; onClose: () => void }) {
           )}
         </div>
       </footer>
+      {reassigning && <ReassignForm tasks={[task]} onClose={() => setReassigning(false)} />}
     </Drawer>
   )
 }
@@ -359,6 +429,9 @@ export default function Tasks() {
   const [view, setView] = useState<'list' | 'board'>('list')
 
   const open = tasks.find((t) => t.id === params.get('open'))
+  // One person's open tasks, to hand on together: when someone is away or has left.
+  const theirs = useMemo(() => (head && assignee ? tasks.filter((t) => t.assigneeId === assignee && t.status !== 'completed') : []), [tasks, head, assignee])
+  const [bulk, setBulk] = useState(() => params.get('reassign') === '1')
 
   const base = useMemo(() => {
     const term = q.trim().toLowerCase()
@@ -453,9 +526,15 @@ export default function Tasks() {
               {employees.map((e) => (
                 <option key={e.id} value={e.id}>
                   {e.name}
+                  {e.active ? '' : ' (inactive)'}
                 </option>
               ))}
             </Select>
+          )}
+          {head && mineOnly === 'all' && theirs.length > 0 && (
+            <Button icon={<ArrowRightLeft size={15} />} onClick={() => setBulk(true)} className="max-sm:basis-full">
+              Reassign {theirs.length} open
+            </Button>
           )}
         </div>
 
@@ -569,6 +648,15 @@ export default function Tasks() {
       </Card>
 
       {open && <TaskDrawer key={open.id} task={open} onClose={() => setParams({})} />}
+      {bulk && theirs.length > 0 && (
+        <ReassignForm
+          tasks={theirs}
+          onClose={() => {
+            setBulk(false)
+            if (params.has('reassign')) setParams({})
+          }}
+        />
+      )}
       {params.get('new') && head && <TaskForm onClose={() => setParams({})} />}
     </>
   )

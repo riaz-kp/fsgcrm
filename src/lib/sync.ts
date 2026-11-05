@@ -15,7 +15,7 @@ import type { PostgrestError, RealtimeChannel, RealtimePostgresChangesPayload } 
 import { create } from 'zustand'
 import type { SeedData } from '../data/seed'
 import { emptyData, useStore, type State } from '../store'
-import type { AttendanceEntry, Credential, Portal } from '../types'
+import type { AttendanceEntry, Credential, Dsc, Portal } from '../types'
 import { randomId } from './format'
 import { supabase } from './supabase'
 
@@ -59,11 +59,11 @@ const LISTS: ListDef[] = [
     pk: 'id',
     dates: ['joined', 'dob'],
     readOnly: ['username', 'hasLogin', 'birthday'],
-    columns: 'seq, id, name, title, role, reports_to, responsibilities, phone, email, hue, active, joined, photo, permissions, origin, updated_at, username, has_login, birthday',
+    columns: 'seq, id, name, title, role, reports_to, responsibilities, phone, email, hue, active, joined, photo, permissions, origin, updated_at, username, has_login, birthday, work_from, work_to',
     hidden: ['dob', 'address', 'bloodGroup', 'qualification', 'family'],
   },
   { key: 'scopes', table: 'scopes', noun: 'scope', pk: 'key', rename: { group: 'scope_group' } },
-  { key: 'clients', table: 'clients', noun: 'client', pk: 'id', newestFirst: true, dates: ['since'], apart: { credentials: [] } },
+  { key: 'clients', table: 'clients', noun: 'client', pk: 'id', newestFirst: true, dates: ['since'], apart: { credentials: [], dscs: [] } },
   { key: 'leads', table: 'leads', noun: 'lead', pk: 'id', newestFirst: true, dates: ['nextFollowUp', 'createdAt'] },
   { key: 'tasks', table: 'tasks', noun: 'task', pk: 'id', newestFirst: true, dates: ['dueDate', 'createdAt'] },
   { key: 'gst', table: 'gst_filings', noun: 'GST filing', pk: 'id', dates: ['dataIn'] },
@@ -84,6 +84,7 @@ const TABLE_ORDER = [
   'templates',
   'clients',
   'client_logins',
+  'client_dscs',
   'leads',
   'tasks',
   'gst_filings',
@@ -101,6 +102,7 @@ const NOUN: Record<string, string> = {
   ...Object.fromEntries(LISTS.map((d) => [d.table, d.noun])),
   templates: 'message template',
   client_logins: 'portal login',
+  client_dscs: 'DSC',
   attendance: 'attendance entry',
   off_days: 'holiday',
 }
@@ -136,6 +138,7 @@ const attendanceRow = (employeeId: string, date: string, e: AttendanceEntry): Ro
   time_in: e.in ?? null,
   time_out: e.out ?? null,
   ot_minutes: e.ot ?? null,
+  on_time: e.onTime ?? null,
 })
 
 function attendanceEntry(row: Row): AttendanceEntry {
@@ -143,6 +146,7 @@ function attendanceEntry(row: Row): AttendanceEntry {
   if (row.time_in) e.in = row.time_in as string
   if (row.time_out) e.out = row.time_out as string
   if (row.ot_minutes) e.ot = row.ot_minutes as number
+  if (typeof row.on_time === 'boolean') e.onTime = row.on_time
   return e
 }
 
@@ -167,6 +171,7 @@ type Op =
   | { kind: 'insert' | 'update' | 'upsert'; table: string; key: string; match: Row; row: Row }
   | { kind: 'delete'; table: string; key: string; match: Row }
   | { kind: 'logins'; table: 'client_logins'; key: string; clientId: string; logins: Credential[] }
+  | { kind: 'dscs'; table: 'client_dscs'; key: string; clientId: string; dscs: Dsc[] }
 
 /** This tab, on everything it writes. */
 const ORIGIN = randomId(16)
@@ -187,7 +192,7 @@ let idleWaiters: Array<() => void> = []
 
 /** Two changes to the same record waiting together become one. */
 function merge(older: Op, newer: Op): Op | null {
-  if (newer.kind === 'logins' || older.kind === 'logins') return newer
+  if (newer.kind === 'logins' || older.kind === 'logins' || newer.kind === 'dscs' || older.kind === 'dscs') return newer
   if (newer.kind === 'delete') return older.kind === 'insert' ? null : newer
   if (older.kind === 'delete') return newer.kind === 'update' ? older : { ...newer, kind: 'upsert' }
   if (newer.kind === 'update') return { ...older, row: { ...older.row, ...newer.row } }
@@ -290,11 +295,25 @@ async function request(op: Op): Promise<{ error: PostgrestError | null; status: 
         p_logins: op.logins.map((c) => ({ portal: c.portal, username: c.username, password: c.password })),
         p_origin: ORIGIN,
       })
+    case 'dscs':
+      return db.rpc('save_client_dscs', {
+        p_client_id: op.clientId,
+        p_dscs: op.dscs.map((d) => ({
+          id: d.id,
+          holder: d.holder,
+          contact_person: d.contactPerson ?? '',
+          contact_phone: d.contactPhone ?? '',
+          expiry: d.expiry,
+          note: d.note ?? '',
+          password: d.password,
+        })),
+        p_origin: ORIGIN,
+      })
   }
 }
 
 async function send(op: Op) {
-  if (op.kind !== 'delete' && op.kind !== 'logins') inflight.set(op.key, op.row)
+  if (op.kind !== 'delete' && op.kind !== 'logins' && op.kind !== 'dscs') inflight.set(op.key, op.row)
   try {
     const res = await request(op)
     if (res.error) return failed(op, res.error, res.status)
@@ -351,6 +370,7 @@ function refused(op: Op, why: string) {
 async function restore(op: Op) {
   const db = supabase!
   if (op.kind === 'logins') return refreshLogins(op.clientId)
+  if (op.kind === 'dscs') return refreshDscs(op.clientId)
   const def = LIST_BY_TABLE.get(op.table)
   const { data } = await db.from(op.table).select(def?.columns ?? '*').match(op.match).maybeSingle()
   remote(() => {
@@ -388,6 +408,8 @@ function diffList(def: ListDef, before: Item[], after: Item[]) {
     }
     if (def.key === 'clients' && item.credentials !== (was?.credentials ?? []) && (was || (item.credentials as Credential[]).length))
       enqueue({ kind: 'logins', table: 'client_logins', key: `client_logins:${id}`, clientId: id, logins: item.credentials as Credential[] })
+    if (def.key === 'clients' && item.dscs !== (was?.dscs ?? []) && (was || ((item.dscs as Dsc[] | undefined) ?? []).length))
+      enqueue({ kind: 'dscs', table: 'client_dscs', key: `client_dscs:${id}`, clientId: id, dscs: (item.dscs as Dsc[] | undefined) ?? [] })
   }
   for (const id of old.keys()) if (!seen.has(id)) enqueue({ kind: 'delete', table: def.table, key: `${def.table}:${id}`, match: { [def.pk]: id } })
 }
@@ -555,15 +577,42 @@ async function refreshLogins(clientId: string) {
   remote(() => useStore.setState((s) => ({ clients: s.clients.map((c) => (c.id === clientId ? { ...c, credentials } : c)) })))
 }
 
+const dscTimers = new Map<string, number>()
+
+const dscFrom = (r: Row, pw: Map<string, string>): Dsc => {
+  const d: Dsc = { id: r.id as string, holder: r.holder as string, expiry: r.expiry as string, password: pw.get(r.id as string) ?? '' }
+  if (r.contact_person) d.contactPerson = r.contact_person as string
+  if (r.contact_phone) d.contactPhone = r.contact_phone as string
+  if (r.note) d.note = r.note as string
+  return d
+}
+
+/** Fetch one client's DSCs again (and their passwords, if this person may see them). */
+async function refreshDscs(clientId: string) {
+  const db = supabase!
+  const [{ data: rows }, { data: secrets }] = await Promise.all([
+    db.from('client_dscs').select('id, holder, contact_person, contact_phone, expiry, note').eq('client_id', clientId).order('position'),
+    db.rpc('client_dsc_passwords', { p_client_id: clientId }),
+  ])
+  if (pending.has(`client_dscs:${clientId}`)) return
+  const pw = new Map(((secrets ?? []) as Row[]).map((r) => [r.id as string, r.password as string]))
+  const dscs = ((rows ?? []) as Row[]).map((r) => dscFrom(r, pw))
+  remote(() => useStore.setState((s) => ({ clients: s.clients.map((c) => (c.id === clientId ? { ...c, dscs } : c)) })))
+}
+
 function onRemoteChange(p: RealtimePostgresChangesPayload<Row>) {
   const row = p.eventType === 'DELETE' ? null : p.new
   if (row && row.origin === ORIGIN) return
   const keys = (p.eventType === 'DELETE' ? p.old : p.new) as Row
-  if (p.table === 'client_logins') {
-    // Several logins change together; fetch the client's set once.
-    const clientId = keys.client_id as string
-    window.clearTimeout(loginTimers.get(clientId))
-    loginTimers.set(clientId, window.setTimeout(() => void refreshLogins(clientId), 150))
+  if (p.table === 'client_logins' || p.table === 'client_dscs') {
+    // Several logins or DSCs change together; fetch the client's set once. A removed DSC's row says only its id,
+    // so its client is looked up here.
+    const clientId =
+      (keys.client_id as string | undefined) ?? useStore.getState().clients.find((c) => c.dscs?.some((d) => d.id === keys.id))?.id
+    if (!clientId) return
+    const [timers, refresh] = p.table === 'client_logins' ? [loginTimers, refreshLogins] : [dscTimers, refreshDscs]
+    window.clearTimeout(timers.get(clientId))
+    timers.set(clientId, window.setTimeout(() => void refresh(clientId), 150))
     return
   }
   const def = LIST_BY_TABLE.get(p.table)
@@ -597,7 +646,7 @@ async function fetchAll(table: string, order: Array<[string, boolean]>, columns 
 
 async function loadAll(): Promise<SeedData> {
   const db = supabase!
-  const [lists, attendance, offDays, templates, logins, secrets, details] = await Promise.all([
+  const [lists, attendance, offDays, templates, logins, secrets, details, dscs, dscSecrets] = await Promise.all([
     Promise.all(LISTS.map((def) => fetchAll(def.table, [['seq', !def.newestFirst]], def.columns))),
     fetchAll('attendance', [['employee_id', true], ['date', true]]),
     fetchAll('off_days', [['date', true]]),
@@ -609,6 +658,11 @@ async function loadAll(): Promise<SeedData> {
     }),
     db.rpc('employee_details').then(({ data, error }) => {
       if (error) throw new Error(`Could not load team details: ${error.message}`)
+      return (data ?? []) as Row[]
+    }),
+    fetchAll('client_dscs', [['client_id', true], ['position', true], ['id', true]], 'id, client_id, holder, contact_person, contact_phone, expiry, note'),
+    db.rpc('client_dsc_passwords').then(({ data, error }) => {
+      if (error) throw new Error(`Could not load DSC passwords: ${error.message}`)
       return (data ?? []) as Row[]
     }),
   ])
@@ -625,7 +679,14 @@ async function loadAll(): Promise<SeedData> {
     if (!byClient.has(id)) byClient.set(id, [])
     byClient.get(id)!.push({ portal: r.portal as Portal, username: r.username as string, password: pw.get(`${id}:${r.portal}`) ?? '' })
   }
-  data.clients = data.clients.map((c) => ({ ...c, credentials: byClient.get(c.id) ?? [] }))
+  const dscPw = new Map(dscSecrets.map((r) => [r.id as string, r.password as string]))
+  const dscsByClient = new Map<string, Dsc[]>()
+  for (const r of dscs) {
+    const id = r.client_id as string
+    if (!dscsByClient.has(id)) dscsByClient.set(id, [])
+    dscsByClient.get(id)!.push(dscFrom(r, dscPw))
+  }
+  data.clients = data.clients.map((c) => ({ ...c, credentials: byClient.get(c.id) ?? [], dscs: dscsByClient.get(c.id) ?? [] }))
   const personal = new Map(details.map((r) => [r.id as string, detailsFrom(r)]))
   data.employees = data.employees.map((e) => ({ ...e, ...personal.get(e.id) }))
 

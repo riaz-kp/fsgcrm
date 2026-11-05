@@ -6,6 +6,7 @@ import {
   Eye,
   EyeOff,
   ClipboardList,
+  FileKey2,
   ExternalLink,
   FileArchive,
   FileSpreadsheet,
@@ -25,17 +26,20 @@ import {
   Plus,
   ShieldCheck,
   Trash2,
+  UserRound,
   Undo2,
   Upload,
   X,
 } from 'lucide-react'
 import { useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { Detail, Due, MailLink, PhoneLink, WhatsAppLink } from '../components/bits'
+import ChangeHistory from '../components/ChangeHistory'
 import ClientForm from '../components/ClientForm'
 import StatusMessage from '../components/StatusMessage'
 import WorkHistory from '../components/WorkHistory'
-import { Avatar, Badge, Button, Card, CardHeader, Empty, Field, IconButton, Input, Person, Progress, Segmented, Select, Td, Textarea, Th } from '../components/ui'
+import { Avatar, Badge, Button, Card, CardHeader, Empty, Field, IconButton, Input, Modal, PasswordInput, Person, Progress, Segmented, Select, Switch, Td, Textarea, Th } from '../components/ui'
+import { DSC_NOTICE_DAYS, dscState } from '../lib/dsc'
 import { statutoryDeadlines } from '../lib/deadlines'
 import { workEntries } from '../lib/history'
 import { addDays, cn, currentGstPeriod, daysUntil, fileSize, fmtDate, inr, linkLabel, linkSite, periodLabel, todayISO, uid, webLink } from '../lib/format'
@@ -43,9 +47,10 @@ import { MAX_FILE_MB, openClientFile, removeClientFile, uploadClientFile } from 
 import { CATEGORY_TONE, DEPARTMENTS, DOC_KINDS, GST_DATA_TYPES, GST_STATUS, PAYMENT_MODES, PORTALS, SIMPLE_STATUS, TASK_STATUS } from '../lib/meta'
 import { LIVE } from '../lib/supabase'
 import { useCan, useCurrentUser, useLookup, useScopes, useStore, useVisibleTasks } from '../store'
-import type { Clarification, Client, ClientDoc, Credential, DocKind, PaymentMode, Portal, Recording, ScopeKey } from '../types'
+import type { Clarification, Client, ClientDoc, Credential, DocKind, Dsc, PaymentMode, Portal, Recording, ScopeKey } from '../types'
 
-type Tab = 'overview' | 'clarifications' | 'fees' | 'logins' | 'documents' | 'work'
+type Tab = 'overview' | 'clarifications' | 'fees' | 'logins' | 'dsc' | 'documents' | 'work' | 'history'
+const TABS: Tab[] = ['overview', 'clarifications', 'fees', 'logins', 'dsc', 'documents', 'work', 'history']
 
 /** When a table row is shown as a card, its remove button sits in the card's top corner. */
 const CARD_ACTION = '@max-3xl:absolute @max-3xl:top-2 @max-3xl:right-3'
@@ -60,9 +65,15 @@ function Overview({ client, onEdit, onOpenWork }: { client: Client; onEdit?: () 
   const groups = scopes.groups.filter((g) => mine.some((s) => s.group === g))
   const deadlines = useMemo(() => {
     const today = todayISO()
-    return statutoryDeadlines(today, addDays(today, 120))
+    const until = addDays(today, 120)
+    const statutory = statutoryDeadlines(today, until)
       .filter((d) => d.applies(client))
-      .slice(0, 8)
+      .map((d) => ({ id: d.id, date: d.date, title: d.title, detail: d.detail, badge: DEPARTMENTS[d.dept] }))
+    // A DSC that has run out stays here until it is renewed.
+    const dscs = client.active
+      ? client.dscs.filter((d) => d.expiry <= until).map((d) => ({ id: d.id, date: d.expiry, title: 'DSC expiry', detail: d.holder, badge: { label: 'DSC', tone: 'violet' as const } }))
+      : []
+    return [...dscs, ...statutory].sort((a, b) => a.date.localeCompare(b.date)).slice(0, 8)
   }, [client])
 
   return (
@@ -73,6 +84,11 @@ function Overview({ client, onEdit, onOpenWork }: { client: Client; onEdit?: () 
           <Detail label="Category">
             <Badge tone={CATEGORY_TONE[client.category]}>{client.category}</Badge>
           </Detail>
+          {client.category !== 'Individual' && (
+            <Detail label="Contact person" icon={<UserRound size={14} />}>
+              {client.contactPerson}
+            </Detail>
+          )}
           {client.profession && <Detail label="Profession">{client.profession}</Detail>}
           <Detail label="Nature of business">{client.business}</Detail>
           <Detail label="Place" icon={<MapPin size={14} />}>
@@ -218,7 +234,7 @@ function Overview({ client, onEdit, onOpenWork }: { client: Client; onEdit?: () 
             <ul className="divide-y divide-ink-100 pb-2">
               {deadlines.map((d) => (
                 <li key={d.id} className="flex items-center gap-3 px-5 py-2.5">
-                  <Badge tone={DEPARTMENTS[d.dept].tone}>{DEPARTMENTS[d.dept].label}</Badge>
+                  <Badge tone={d.badge.tone}>{d.badge.label}</Badge>
                   <span className="min-w-0 flex-1 truncate">
                     <span className="font-semibold text-ink-800">{d.title}</span> <span className="text-ink-500">· {d.detail}</span>
                   </span>
@@ -425,6 +441,204 @@ function Logins({ client }: { client: Client }) {
             ? 'Passwords are stored encrypted and only reach the people allowed to see them in Settings.'
             : 'These are sample logins. In the live system passwords are stored encrypted and limited to the people allowed to see them.'}
       </p>
+    </Card>
+  )
+}
+
+/** Add or change one DSC. Renewing one is changing its expiry date. */
+function DscForm({ client, dsc, onClose }: { client: Client; dsc?: Dsc; onClose: () => void }) {
+  const updateClient = useStore((s) => s.updateClient)
+  const [f, setF] = useState({
+    holder: dsc?.holder ?? (client.category === 'Individual' ? client.name : (client.contactPerson ?? '')),
+    expiry: dsc?.expiry ?? '',
+    password: dsc?.password ?? '',
+    contactPerson: dsc?.contactPerson ?? (client.category === 'Individual' ? '' : (client.contactPerson ?? '')),
+    contactPhone: dsc?.contactPhone ?? '',
+    note: dsc?.note ?? '',
+  })
+  const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((p) => ({ ...p, [k]: v }))
+  const valid = f.holder.trim() && f.expiry
+
+  const save = () => {
+    if (!valid) return
+    const next: Dsc = {
+      id: dsc?.id ?? uid('dsc'),
+      holder: f.holder.trim(),
+      expiry: f.expiry,
+      password: f.password,
+      contactPerson: f.contactPerson.trim() || undefined,
+      contactPhone: f.contactPhone.trim() || undefined,
+      note: f.note.trim() || undefined,
+    }
+    updateClient(client.id, { dscs: dsc ? client.dscs.map((d) => (d.id === dsc.id ? next : d)) : [...client.dscs, next] })
+    onClose()
+  }
+
+  return (
+    <Modal
+      title={dsc ? `DSC of ${dsc.holder}` : 'Add a DSC'}
+      subtitle={dsc ? 'Renewed? Change the expiry date to the new one.' : `For ${client.name}. Reminders start ${DSC_NOTICE_DAYS} days before it expires.`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={save} disabled={!valid}>
+            {dsc ? 'Save' : 'Add DSC'}
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Whose DSC" hint="name on the certificate" className="sm:col-span-2">
+          <Input value={f.holder} onChange={(e) => set('holder', e.target.value)} placeholder="e.g. the proprietor, or a director or partner" autoFocus={!dsc} />
+        </Field>
+        <Field label="Expiry date">
+          <Input type="date" value={f.expiry} onChange={(e) => set('expiry', e.target.value)} className="tnum" />
+        </Field>
+        <Field label="Password" hint="token PIN">
+          <PasswordInput value={f.password} onChange={(e) => set('password', e.target.value)} autoComplete="off" className="tnum" />
+        </Field>
+        <Field label="Contact person" hint="who has the token">
+          <Input value={f.contactPerson} onChange={(e) => set('contactPerson', e.target.value)} />
+        </Field>
+        <Field label="Contact number">
+          <Input value={f.contactPhone} onChange={(e) => set('contactPhone', e.target.value)} inputMode="tel" />
+        </Field>
+        <Field label="Note" hint="optional" className="sm:col-span-2">
+          <Input value={f.note} onChange={(e) => set('note', e.target.value)} placeholder="e.g. Class 3, token kept at the office" />
+        </Field>
+      </div>
+    </Modal>
+  )
+}
+
+function Dscs({ client }: { client: Client }) {
+  const updateClient = useStore((s) => s.updateClient)
+  // Like portal logins: everyone sees whose DSCs there are and when they expire; the passwords, and changing them, are for those allowed.
+  const access = useCan()('view_logins')
+  const [shown, setShown] = useState<Set<string>>(new Set())
+  const [copied, setCopied] = useState('')
+  const [editing, setEditing] = useState<Dsc | 'new'>()
+  const list = [...client.dscs].sort((a, b) => a.expiry.localeCompare(b.expiry))
+
+  const copy = (key: string, text: string) => {
+    void navigator.clipboard?.writeText(text)
+    setCopied(key)
+    setTimeout(() => setCopied(''), 1200)
+  }
+  const toggle = (id: string) =>
+    setShown((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
+
+  return (
+    <Card>
+      <CardHeader
+        title="Digital signature certificates"
+        hint={`Not every client has one. Reminders start ${DSC_NOTICE_DAYS} days before a DSC expires.`}
+        action={
+          access && (
+            <Button size="sm" icon={<Plus size={15} />} onClick={() => setEditing('new')}>
+              Add DSC
+            </Button>
+          )
+        }
+      />
+      {list.length === 0 ? (
+        <Empty icon={<FileKey2 size={20} />} title="No DSC recorded" hint={access ? 'Add one if the client has a DSC that FSG keeps or uses.' : 'None has been added for this client.'} />
+      ) : (
+        <div className="@container overflow-x-auto">
+          <table className="stack w-full min-w-[720px] text-sm">
+            <thead className="border-y border-ink-100 bg-ink-50/60">
+              <tr>
+                <Th>Whose</Th>
+                <Th>Expiry</Th>
+                <Th>Contact</Th>
+                <Th>Password</Th>
+                <Th />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-ink-100">
+              {list.map((d) => {
+                const state = dscState(d.expiry)
+                const visible = shown.has(d.id)
+                return (
+                  <tr key={d.id} className="relative">
+                    <Td className="@max-3xl:mr-20">
+                      <p className="font-semibold text-ink-800">{d.holder}</p>
+                      {d.note && <p className="text-xs text-ink-500">{d.note}</p>}
+                    </Td>
+                    <Td label="Expiry">
+                      <Badge tone={state.tone} dot>
+                        {state.label}
+                      </Badge>
+                      {state.tone === 'amber' && <p className="tnum mt-0.5 text-xs text-ink-500">{fmtDate(d.expiry, true)}</p>}
+                    </Td>
+                    <Td label="Contact">
+                      {d.contactPerson || d.contactPhone ? (
+                        <>
+                          {d.contactPerson && <p className="font-medium text-ink-800">{d.contactPerson}</p>}
+                          {d.contactPhone && <PhoneLink phone={d.contactPhone} className="text-[13px] text-brand-700" />}
+                        </>
+                      ) : (
+                        <span className="text-ink-400">—</span>
+                      )}
+                    </Td>
+                    <Td label="Password">
+                      {!access ? (
+                        <span className="inline-flex items-center gap-1.5 text-[13px] text-ink-400">
+                          <Lock size={13} /> Hidden
+                        </span>
+                      ) : d.password ? (
+                        <span className="inline-flex max-w-full items-center gap-1">
+                          <code className="tnum truncate rounded bg-ink-50 px-1.5 py-0.5 text-[13px] text-ink-800">{visible ? d.password : '•'.repeat(10)}</code>
+                          <IconButton label={visible ? 'Hide password' : 'Show password'} onClick={() => toggle(d.id)}>
+                            {visible ? <EyeOff size={14} /> : <Eye size={14} />}
+                          </IconButton>
+                          <IconButton label="Copy password" onClick={() => copy(d.id, d.password)}>
+                            {copied === d.id ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+                          </IconButton>
+                        </span>
+                      ) : (
+                        <span className="text-[13px] text-ink-400">Not saved</span>
+                      )}
+                    </Td>
+                    <Td className={cn('text-right whitespace-nowrap', CARD_ACTION)}>
+                      {access && (
+                        <>
+                          <IconButton label={`Edit DSC of ${d.holder}`} onClick={() => setEditing(d)}>
+                            <Pencil size={14} />
+                          </IconButton>
+                          <IconButton
+                            label={`Remove DSC of ${d.holder}`}
+                            onClick={() => updateClient(client.id, { dscs: client.dscs.filter((x) => x.id !== d.id) })}
+                            className="hover:text-rose-600"
+                          >
+                            <Trash2 size={14} />
+                          </IconButton>
+                        </>
+                      )}
+                    </Td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="flex items-start gap-2 border-t border-ink-100 px-5 py-3 text-xs text-ink-500">
+        <ShieldCheck size={14} className="mt-px shrink-0 text-emerald-600" />
+        {!access
+          ? 'You do not have access to DSC passwords. Ask a head if you need one, or to be given access to passwords in Settings.'
+          : LIVE
+            ? 'DSC passwords are stored encrypted, like portal passwords, and only reach the people allowed to see passwords.'
+            : 'These are sample DSCs. In the live system their passwords are stored encrypted and limited to the people allowed to see passwords.'}
+      </p>
+      {editing && <DscForm client={client} dsc={editing === 'new' ? undefined : editing} onClose={() => setEditing(undefined)} />}
     </Card>
   )
 }
@@ -1124,7 +1338,10 @@ export default function ClientDetail() {
   const client = useStore((s) => s.clients.find((c) => c.id === id))
   const updateClient = useStore((s) => s.updateClient)
   const can = useCan()
-  const [tab, setTab] = useState<Tab>('overview')
+  // The tab is in the address, so a reminder can open a client's DSCs.
+  const [params, setParams] = useSearchParams()
+  const tab: Tab = TABS.find((t) => t === params.get('tab')) ?? 'overview'
+  const setTab = (t: Tab) => setParams(t === 'overview' ? {} : { tab: t }, { replace: true })
   const [editing, setEditing] = useState(false)
   const [messaging, setMessaging] = useState(false)
   const canEdit = can('edit_clients')
@@ -1158,16 +1375,7 @@ export default function ClientDetail() {
           {canEdit ? (
             <label className="flex items-center gap-2 text-[13px] font-semibold text-ink-600">
               {client.active ? 'Active' : 'Inactive'}
-              <button
-                type="button"
-                role="switch"
-                aria-checked={client.active}
-                aria-label="Client active"
-                onClick={() => updateClient(client.id, { active: !client.active })}
-                className={cn('relative h-6 w-10 rounded-full transition-colors', client.active ? 'bg-emerald-500' : 'bg-ink-300')}
-              >
-                <span className={cn('absolute top-0.5 left-0.5 size-5 rounded-full bg-white shadow transition-transform', client.active && 'translate-x-4')} />
-              </button>
+              <Switch checked={client.active} onChange={(active) => updateClient(client.id, { active })} label="Client active" />
             </label>
           ) : (
             <Badge tone={client.active ? 'green' : 'neutral'} dot>
@@ -1194,8 +1402,10 @@ export default function ClientDetail() {
             { value: 'clarifications', label: 'Clarifications', count: client.clarifications.length },
             ...(fees ? [{ value: 'fees' as const, label: 'Fees' }] : []),
             { value: 'logins', label: 'Portal logins', count: client.credentials.length },
+            { value: 'dsc', label: 'DSC', count: client.dscs.length },
             { value: 'documents', label: 'Documents', count: client.documents.length },
             { value: 'work', label: 'Work' },
+            ...(can('settings') ? [{ value: 'history' as const, label: 'History' }] : []),
           ]}
         />
       </div>
@@ -1204,6 +1414,8 @@ export default function ClientDetail() {
       {tab === 'clarifications' && <Clarifications client={client} />}
       {tab === 'fees' && fees && <Fees client={client} />}
       {tab === 'logins' && <Logins client={client} />}
+      {tab === 'dsc' && <Dscs client={client} />}
+      {tab === 'history' && can('settings') && <ChangeHistory clientId={client.id} />}
       {tab === 'documents' && <Documents client={client} />}
       {tab === 'work' && <Work client={client} onMessage={() => setMessaging(true)} />}
 

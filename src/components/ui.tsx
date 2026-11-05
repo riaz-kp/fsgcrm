@@ -1,5 +1,5 @@
-import { X } from 'lucide-react'
-import { useEffect, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type ComponentProps, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react'
+import { Eye, EyeOff, X } from 'lucide-react'
+import { useEffect, useState, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type ComponentProps, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from 'react'
 import { cn, initials } from '../lib/format'
 import type { Tone } from '../lib/meta'
 import type { Employee } from '../types'
@@ -264,6 +264,43 @@ export function Field({ label, hint, children, className }: { label: string; hin
 
 export function Input({ className, small, fit, ...rest }: InputHTMLAttributes<HTMLInputElement> & ControlProps) {
   return <input className={cn(control({ small, fit }), className)} {...rest} />
+}
+
+/** A password box with an eye to show what was typed, for checking it before signing in. */
+export function PasswordInput({ className, small, fit, ...rest }: Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & ControlProps) {
+  const [shown, setShown] = useState(false)
+  return (
+    <span className={cn('relative', fit ? 'inline-block' : 'block')}>
+      <input type={shown ? 'text' : 'password'} className={cn(control({ small, fit }), 'pr-10', className)} {...rest} />
+      <button
+        type="button"
+        onClick={() => setShown((v) => !v)}
+        aria-label={shown ? 'Hide password' : 'Show password'}
+        aria-pressed={shown}
+        title={shown ? 'Hide password' : 'Show password'}
+        className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-lg text-ink-400 hover:text-ink-700 focus-visible:text-ink-700 focus-visible:outline-none"
+      >
+        {shown ? <EyeOff size={16} /> : <Eye size={16} />}
+      </button>
+    </span>
+  )
+}
+
+/** An on/off switch, such as active or inactive. */
+export function Switch({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={cn('relative h-6 w-10 shrink-0 rounded-full transition-colors disabled:opacity-50', checked ? 'bg-emerald-500' : 'bg-ink-300')}
+    >
+      <span className={cn('absolute top-0.5 left-0.5 size-5 rounded-full bg-white shadow transition-transform', checked && 'translate-x-4')} />
+    </button>
+  )
 }
 
 export function Textarea({ className, ...rest }: ComponentProps<'textarea'>) {

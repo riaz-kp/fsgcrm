@@ -36,7 +36,9 @@ import {
 } from 'lucide-react'
 import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { startDemoLog } from '../lib/changeLog'
 import { statutoryDeadlines } from '../lib/deadlines'
+import { dscsDue, looksAfterDscs } from '../lib/dsc'
 import { addDays, cn, daysUntil, fmtDate, fmtTime, relDue, todayISO } from '../lib/format'
 import { install, installsFromShareMenu, useInstall } from '../lib/install'
 import { DEPARTMENTS, ROLES } from '../lib/meta'
@@ -380,7 +382,7 @@ function Reminders() {
         })
       }
     for (const e of employees) {
-      if (birthdayOf(e) !== today.slice(5)) continue
+      if (!e.active || birthdayOf(e) !== today.slice(5)) continue
       out.push({
         key: `b-${e.id}`,
         title: e.id === me.id ? 'Happy birthday!' : `It's ${e.name}'s birthday today`,
@@ -403,6 +405,19 @@ function Reminders() {
       if (l.ownerId === me.id && l.nextFollowUp && (l.status === 'new' || l.status === 'followup') && daysUntil(l.nextFollowUp) <= 0)
         out.push({ key: l.id, title: `Follow up with ${l.name}`, sub: `Lead · ${relDue(l.nextFollowUp)}`, when: l.nextFollowUp, urgent: daysUntil(l.nextFollowUp) < 0, to: `/leads?open=${l.id}` })
     }
+    // DSCs running out, for whoever looks after them; one that ran out a while back without renewal has been let go.
+    if (looksAfterDscs(me.responsibilities, head))
+      for (const x of dscsDue(clients)) {
+        if (x.days < -60) continue
+        out.push({
+          key: `dsc-${x.dsc.id}`,
+          title: `DSC ${x.days < 0 ? 'expired' : 'expires'}: ${x.dsc.holder}`,
+          sub: `${x.client.name} · ${x.days < 0 ? `expired ${fmtDate(x.dsc.expiry)}` : relDue(x.dsc.expiry)}`,
+          when: x.dsc.expiry,
+          urgent: x.days <= 7,
+          to: `/clients/${x.client.id}?tab=dsc`,
+        })
+      }
     for (const d of statutoryDeadlines(today, addDays(today, 10))) {
       const n = clients.filter(d.applies).length
       if (n === 0) continue
@@ -568,6 +583,7 @@ export default function Layout() {
     window.scrollTo(0, 0)
   }, [location.pathname])
   useTrackerRows()
+  useEffect(startDemoLog, [])
 
   return (
     <div data-rail={collapsed ? '' : undefined} className="min-h-dvh rail:pl-16 full:pl-56">

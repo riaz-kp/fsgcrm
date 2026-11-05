@@ -171,7 +171,8 @@ function TodayTasks() {
 
   const boxes = useMemo(() => {
     const due = tasks.filter((t) => t.status !== 'completed' && daysUntil(t.dueDate) <= 0)
-    const people = head ? employees : employees.filter((e) => e.id === me.id)
+    // Someone made inactive still shows while work is left with them, so it can be handed on.
+    const people = head ? employees.filter((e) => e.active || due.some((t) => t.assigneeId === e.id)) : employees.filter((e) => e.id === me.id)
     return people
       .map((e) => ({ e, list: due.filter((t) => t.assigneeId === e.id).sort((a, b) => a.dueDate.localeCompare(b.dueDate)) }))
       .sort((a, b) => b.list.length - a.list.length)
@@ -258,7 +259,7 @@ function Birthdays() {
   const me = useCurrentUser()
   const employees = useStore((s) => s.employees)
   const today = todayISO().slice(5)
-  const people = employees.filter((e) => birthdayOf(e) === today)
+  const people = employees.filter((e) => e.active && birthdayOf(e) === today)
   if (people.length === 0) return null
   const mine = people.some((e) => e.id === me.id)
   const others = people.filter((e) => e.id !== me.id).map((e) => e.name)
@@ -330,9 +331,9 @@ function Workload() {
   const employees = useStore((s) => s.employees)
   const tasks = useStore((s) => s.tasks)
   const rows = useMemo(() => {
-    const list = employees.map((e) => {
+    const list = employees.flatMap((e) => {
       const open = tasks.filter((t) => t.assigneeId === e.id && t.status !== 'completed')
-      return { e, open: open.length, overdue: open.filter((t) => daysUntil(t.dueDate) < 0).length }
+      return e.active || open.length ? [{ e, open: open.length, overdue: open.filter((t) => daysUntil(t.dueDate) < 0).length }] : []
     })
     return list.sort((a, b) => b.open - a.open)
   }, [employees, tasks])

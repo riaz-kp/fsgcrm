@@ -6,10 +6,10 @@ import { statutoryDeadlines } from '../lib/deadlines'
 import { addDays, cn, daysUntil, fmtDate, fmtTime, parseISO, periodLabel, relDue, shiftPeriod, toISO, todayISO } from '../lib/format'
 import { DEPARTMENTS, type Tone } from '../lib/meta'
 import { useStoredState } from '../lib/useStoredState'
-import { can, useCurrentUser, useReminderOccurrences, useStore } from '../store'
+import { can, pickable, useCurrentUser, useReminderOccurrences, useStore } from '../store'
 import type { Department, Reminder, ReminderRepeat } from '../types'
 
-const KINDS = ['Statutory', 'Staff cut-off', 'Task', 'Follow-up', 'Committed', 'Consultation', 'Reminder'] as const
+const KINDS = ['Statutory', 'Staff cut-off', 'Task', 'Follow-up', 'Committed', 'Consultation', 'Reminder', 'DSC'] as const
 type Kind = (typeof KINDS)[number]
 
 const KIND_LABEL: Record<Kind, string> = {
@@ -20,6 +20,7 @@ const KIND_LABEL: Record<Kind, string> = {
   Committed: 'Committed dates',
   Consultation: 'Consultations',
   Reminder: 'Reminders',
+  DSC: 'DSC expiries',
 }
 
 const KIND_TONE: Record<Kind, Tone> = {
@@ -30,6 +31,7 @@ const KIND_TONE: Record<Kind, Tone> = {
   Committed: 'green',
   Consultation: 'violet',
   Reminder: 'teal',
+  DSC: 'red',
 }
 
 /** The work heads a statutory date or task can belong to, for the second row of filters. */
@@ -139,6 +141,13 @@ function useEvents(from: string, to: string): CalEvent[] {
         reminder: { r, done: o.done },
       })
     }
+    for (const c of clients) {
+      if (!c.active) continue
+      for (const d of c.dscs) {
+        if (!within(d.expiry)) continue
+        out.push({ id: `dsc-${d.id}`, date: d.expiry, title: `DSC expires · ${d.holder}`, sub: c.name, tone: 'red', kind: 'DSC', to: `/clients/${c.id}?tab=dsc` })
+      }
+    }
     return out.sort((a, b) => a.date.localeCompare(b.date))
   }, [me, clients, tasks, leads, services, consultations, reminders, employees, from, to])
 }
@@ -183,7 +192,7 @@ function ReminderForm({ reminder, draft, onClose }: { reminder?: Reminder; draft
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((p) => ({ ...p, [k]: v }))
   const valid = f.title.trim() && f.date
   // People who assign work can set reminders for others; everyone else for themselves or the whole firm.
-  const people = can(me, 'assign_tasks') ? employees : employees.filter((e) => e.id === me.id || e.id === f.forId)
+  const people = can(me, 'assign_tasks') ? pickable(employees, f.forId) : employees.filter((e) => e.id === me.id || e.id === f.forId)
 
   const save = () => {
     if (!valid) return

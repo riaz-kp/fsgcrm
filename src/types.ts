@@ -40,6 +40,9 @@ export interface Employee {
   username?: string
   /** Whether they can sign in at all. */
   hasLogin?: boolean
+  /** Their usual hours, 'HH:MM' in 24h; each person's may differ. Arriving by `workFrom` counts as on time. */
+  workFrom?: string
+  workTo?: string
 }
 
 /** Things the firm can allow or withhold person by person, in Settings. */
@@ -111,6 +114,20 @@ export interface Credential {
   password: string
 }
 
+/** A digital signature certificate kept for the client, usually on a USB token. */
+export interface Dsc {
+  id: string
+  /** Whose certificate it is: the client, or a director or partner. */
+  holder: string
+  /** Who to ask for the token or its password. */
+  contactPerson?: string
+  contactPhone?: string
+  expiry: string
+  /** The token's password. Kept like portal passwords: only those allowed to see passwords have it. */
+  password: string
+  note?: string
+}
+
 export type DocKind =
   | 'Aadhaar'
   | 'PAN'
@@ -156,11 +173,15 @@ export interface Client {
   pan?: string
   tan?: string
   gstFrequency?: 'M' | 'Q'
+  /** Who to speak to at a business; individuals are spoken to themselves. */
+  contactPerson?: string
   active: boolean
   scopes: ScopeKey[]
   /** Which certificate, what "other" means, and so on. */
   scopeDetails?: ScopeDetails
   credentials: Credential[]
+  /** Digital signature certificates: none, one, or one per director or partner. */
+  dscs: Dsc[]
   documents: ClientDoc[]
   /** Date the requirement list for a scope was sent to the client. */
   requirementsSent: Partial<Record<ScopeKey, string>>
@@ -256,6 +277,8 @@ export interface GstFiling {
   dataType?: GstDataType
   /** The day the client's data for the period came in. */
   dataIn?: string
+  /** The days the client was reminded to send it. */
+  dataReminded?: string[]
   gstr1: GstStatus
   gstr3b: GstStatus
   assigneeId: string
@@ -396,7 +419,7 @@ export interface Reminder {
   done: string[]
 }
 
-export type TemplateKey = 'status' | 'requirements'
+export type TemplateKey = 'status' | 'requirements' | 'gst_data'
 
 /** Present, half day or leave. There is no separate absent: a day away is leave. */
 export type AttendanceMark = 'P' | 'H' | 'L'
@@ -408,6 +431,8 @@ export interface AttendanceEntry {
   out?: string
   /** Overtime in minutes, as recorded by whoever keeps attendance. */
   ot?: number
+  /** Ticked when they came in on time; false when they were late. Suggested from the time in and their working hours. */
+  onTime?: boolean
 }
 
 /**
@@ -418,3 +443,24 @@ export type OffDays = Record<string, string>
 
 /** employee id -> date -> entry */
 export type Attendance = Record<string, Record<string, AttendanceEntry>>
+
+/* ---------- Change log ---------- */
+
+export type ChangeAction = 'add' | 'change' | 'remove' | 'sign_in'
+
+/** One entry in the record of who changed what. Kept by the database live, and in this browser on sample data. */
+export interface ChangeEntry {
+  id: string
+  at: string
+  /** Who made the change; unset for changes made outside the app. */
+  by?: string
+  /** The database table: 'clients', 'client_logins', 'gst_filings'…, or 'sign_in'. */
+  table: string
+  recordId: string
+  clientId?: string
+  action: ChangeAction
+  /** What the record was called at the time. */
+  label?: string
+  /** Field -> [before, after], or null where only the fact of a change is kept. Field names as the app has them. */
+  changes?: Record<string, [unknown, unknown] | null>
+}
