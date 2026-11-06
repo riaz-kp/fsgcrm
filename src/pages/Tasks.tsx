@@ -1,4 +1,4 @@
-import { ArrowRightLeft, CheckCircle2, ListTodo, Plus, RotateCcw, Search, Send, Undo2, X } from 'lucide-react'
+import { ArrowRightLeft, CheckCircle2, ListTodo, Plus, RotateCcw, Search, Send, Trash2, Undo2, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Due, RecurringTag } from '../components/bits'
@@ -198,6 +198,43 @@ function TaskForm({ onClose }: { onClose: () => void }) {
   )
 }
 
+/** Take a task off the list for good: one made by mistake, or work the client no longer wants. */
+function DeleteTask({ task, onClose, onDeleted }: { task: Task; onClose: () => void; onDeleted: () => void }) {
+  const deleteTask = useStore((s) => s.deleteTask)
+  const { emp } = useLookup()
+  const remarks = task.remarks.length
+  return (
+    <Modal
+      title="Delete this task?"
+      subtitle={task.title}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Keep it
+          </Button>
+          <Button
+            variant="danger"
+            icon={<Trash2 size={15} />}
+            onClick={() => {
+              deleteTask(task.id)
+              onDeleted()
+            }}
+          >
+            Delete task
+          </Button>
+        </>
+      }
+    >
+      <p className="text-sm text-ink-700">
+        It goes from {emp(task.assigneeId)?.name ?? 'the assignee'}'s list and from the client's work history
+        {remarks > 0 && `, with its ${remarks} remark${remarks === 1 ? '' : 's'}`}
+. This cannot be undone. To keep a record of the work, mark it completed instead.
+      </p>
+    </Modal>
+  )
+}
+
 function TaskDrawer({ task, onClose }: { task: Task; onClose: () => void }) {
   const me = useCurrentUser()
   // Whoever may assign work (the heads, unless Settings says otherwise) also approves it.
@@ -209,6 +246,7 @@ function TaskDrawer({ task, onClose }: { task: Task; onClose: () => void }) {
   const { emp, client } = useLookup()
   const [text, setText] = useState('')
   const [reassigning, setReassigning] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const c = client(task.clientId)
 
   const remark = (fallback?: string) => {
@@ -258,9 +296,16 @@ function TaskDrawer({ task, onClose }: { task: Task; onClose: () => void }) {
               <p className="mt-0.5 text-[13px] text-ink-500">Internal task</p>
             )}
           </div>
-          <IconButton label="Close" onClick={onClose} className="-mr-2">
-            <X size={18} />
-          </IconButton>
+          <div className="-mr-2 flex shrink-0">
+            {head && (
+              <IconButton label="Delete task" onClick={() => setDeleting(true)} className="hover:text-rose-600">
+                <Trash2 size={16} />
+              </IconButton>
+            )}
+            <IconButton label="Close" onClick={onClose}>
+              <X size={18} />
+            </IconButton>
+          </div>
         </div>
       </header>
 
@@ -404,6 +449,7 @@ function TaskDrawer({ task, onClose }: { task: Task; onClose: () => void }) {
         </div>
       </footer>
       {reassigning && <ReassignForm tasks={[task]} onClose={() => setReassigning(false)} />}
+      {deleting && <DeleteTask task={task} onClose={() => setDeleting(false)} onDeleted={onClose} />}
     </Drawer>
   )
 }

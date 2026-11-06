@@ -1,5 +1,5 @@
 import type { AuditFiling, Client, Department, GstFiling, ItFiling, ServiceJob, Task, TdsFiling } from '../types'
-import { itDueDate } from './deadlines'
+import { itDueDate, type DeadlineMoves } from './deadlines'
 import { fmtDate, periodLabel, todayISO } from './format'
 import { GST_STATUS, SIMPLE_STATUS, TASK_STATUS, type Tone } from './meta'
 
@@ -28,6 +28,8 @@ interface Sources {
   audits: AuditFiling[]
   services: ServiceJob[]
   tasks: Task[]
+  /** Statutory dates changed in Settings. */
+  moves?: DeadlineMoves
 }
 
 const TDS_PAYMENT: Record<TdsFiling['payments'][string], WorkEntry['status']> = {
@@ -103,7 +105,7 @@ export function workEntries(src: Sources, clients: Client[]): WorkEntry[] {
   }
 
   for (const r of src.it) {
-    const due = itDueDate(r, byId.get(r.clientId))
+    const due = itDueDate(r, byId.get(r.clientId), src.moves)
     out.push({
       key: r.id,
       month: (r.doneOn ?? due).slice(0, 7),

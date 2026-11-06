@@ -102,6 +102,8 @@ export interface ScopeDef {
   /** Set for scopes that need a line saying what exactly is meant. */
   detailHint?: string
   builtin?: boolean
+  /** Statutory dates moved from the usual one (an extension, say): deadline id -> new date. Only built-in scopes have deadlines. */
+  deadlines?: Record<string, string>
 }
 
 export type ScopeDetails = Partial<Record<ScopeKey, string>>

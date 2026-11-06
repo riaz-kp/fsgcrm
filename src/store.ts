@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware'
 import { buildSeed, type SeedData } from './data/seed'
 import { addDays, todayISO, uid } from './lib/format'
+import { deadlineMoves, type DeadlineMoves } from './lib/deadlines'
 import { ROLE_PERMISSIONS, TEMPLATES } from './lib/meta'
 import { LIVE } from './lib/supabase'
 import type { NewRows } from './lib/trackerRows'
@@ -43,6 +44,7 @@ interface Actions {
 
   addTask: (t: Omit<Task, 'id' | 'createdAt' | 'remarks' | 'assignedById'>) => string
   updateTask: (id: string, patch: Partial<Task>) => void
+  deleteTask: (id: string) => void
   addTaskRemark: (id: string, text: string) => void
   /** Hand tasks to someone else, with a remark on each saying who had it and why. */
   reassignTasks: (ids: string[], to: string, note?: string) => void
@@ -68,6 +70,8 @@ interface Actions {
   updateScope: (key: ScopeKey, patch: Partial<Omit<ScopeDef, 'key' | 'builtin'>>) => void
   /** Takes the scope off every client and lead too. Built-in scopes stay. */
   deleteScope: (key: ScopeKey) => void
+  /** Move one statutory date (an extension, say); null puts it back to the usual date. */
+  moveDeadline: (scope: ScopeKey, id: string, date: string | null) => void
 
   /** Pass nothing to go back to what the person's role gives. */
   setPermissions: (employeeId: string, permissions?: Permission[]) => void
@@ -231,6 +235,7 @@ export const useStore = create<State>()(
         return id
       },
       updateTask: (id, patch) => set((s) => ({ tasks: patchIn(s.tasks, id, patch) })),
+      deleteTask: (id) => set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) })),
       addTaskRemark: (id, text) =>
         set((s) => ({
           tasks: s.tasks.map((t) =>
@@ -286,6 +291,16 @@ export const useStore = create<State>()(
 
       addScope: (def) => set((s) => ({ scopes: [...s.scopes, { ...def, key: uid('x') }] })),
       updateScope: (key, patch) => set((s) => ({ scopes: s.scopes.map((x) => (x.key === key ? { ...x, ...patch } : x)) })),
+      moveDeadline: (key, id, date) =>
+        set((s) => ({
+          scopes: s.scopes.map((x) => {
+            if (x.key !== key) return x
+            const deadlines = { ...x.deadlines }
+            if (date) deadlines[id] = date
+            else delete deadlines[id]
+            return { ...x, deadlines: Object.keys(deadlines).length ? deadlines : undefined }
+          }),
+        })),
       deleteScope: (key) =>
         set((s) => {
           if (s.scopes.find((x) => x.key === key)?.builtin) return {}
@@ -486,6 +501,12 @@ export function useScopes() {
       short: (key: ScopeKey) => byKey.get(key)?.short ?? '?',
     }
   }, [list])
+}
+
+/** Every changed statutory date, for working out deadlines. */
+export function useDeadlineMoves(): DeadlineMoves {
+  const list = useStore((s) => s.scopes)
+  return useMemo(() => deadlineMoves(list), [list])
 }
 
 export function useTemplate(key: TemplateKey): string {

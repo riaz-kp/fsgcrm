@@ -50,7 +50,7 @@ import { DEPARTMENTS, ROLES } from '../lib/meta'
 import { LIVE } from '../lib/supabase'
 import { dismissSyncError, useSyncStatus } from '../lib/sync'
 import { useTrackerRows } from '../lib/useTrackerRows'
-import { birthdayOf, can, useCan, useCurrentUser, useDueReminders, useLookup, useStore, useVisibleTasks } from '../store'
+import { birthdayOf, can, useCan, useCurrentUser, useDeadlineMoves, useDueReminders, useLookup, useStore, useVisibleTasks } from '../store'
 import { useAccount } from '../lib/account'
 import { Avatar, Badge, Button, IconButton } from './ui'
 
@@ -370,6 +370,7 @@ function Reminders() {
   const consultations = useStore((s) => s.consultations)
   const toggleReminderDone = useStore((s) => s.toggleReminderDone)
   const due = useDueReminders()
+  const moves = useDeadlineMoves()
   const { client } = useLookup()
 
   const items = useMemo(() => {
@@ -441,7 +442,7 @@ function Reminders() {
           to: `/clients/${x.client.id}?tab=dsc`,
         })
       }
-    for (const d of statutoryDeadlines(today, addDays(today, 10))) {
+    for (const d of statutoryDeadlines(today, addDays(today, 10), moves)) {
       const n = clients.filter(d.applies).length
       if (n === 0) continue
       out.push({
@@ -454,7 +455,7 @@ function Reminders() {
       })
     }
     return out.sort((a, b) => Number(b.urgent) - Number(a.urgent) || a.when.localeCompare(b.when))
-  }, [tasks, leads, clients, employees, consultations, me, due, client, toggleReminderDone])
+  }, [tasks, leads, clients, employees, consultations, me, due, client, toggleReminderDone, moves])
 
   return (
     <div ref={ref} className="relative">

@@ -6,7 +6,7 @@ import { statutoryDeadlines } from '../lib/deadlines'
 import { addDays, cn, daysUntil, fmtDate, fmtTime, parseISO, periodLabel, relDue, shiftPeriod, toISO, todayISO } from '../lib/format'
 import { DEPARTMENTS, type Tone } from '../lib/meta'
 import { useStoredState } from '../lib/useStoredState'
-import { can, pickable, useCurrentUser, useReminderOccurrences, useStore } from '../store'
+import { can, pickable, useCurrentUser, useDeadlineMoves, useReminderOccurrences, useStore } from '../store'
 import type { Department, Reminder, ReminderRepeat } from '../types'
 
 const KINDS = ['Statutory', 'Staff cut-off', 'Task', 'Follow-up', 'Committed', 'Consultation', 'Reminder', 'DSC'] as const
@@ -77,6 +77,7 @@ const isFilters = (v: unknown): v is Filters =>
 function useEvents(from: string, to: string): CalEvent[] {
   const me = useCurrentUser()
   const clients = useStore((s) => s.clients)
+  const moves = useDeadlineMoves()
   const tasks = useStore((s) => s.tasks)
   const leads = useStore((s) => s.leads)
   const services = useStore((s) => s.services)
@@ -90,11 +91,11 @@ function useEvents(from: string, to: string): CalEvent[] {
     const within = (d: string) => d >= from && d <= to
     const names = new Map(clients.map((c) => [c.id, c.name]))
 
-    for (const d of statutoryDeadlines(addDays(from, -2), addDays(to, 2))) {
+    for (const d of statutoryDeadlines(addDays(from, -2), addDays(to, 2), moves)) {
       const n = clients.filter(d.applies).length
       if (!n) continue
       const tone = DEPARTMENTS[d.dept].tone
-      const sub = `${d.detail} · ${n} clients${d.extendable ? ' · may be extended' : ''}`
+      const sub = `${d.detail} · ${n} clients${d.movedFrom ? ` · moved from ${fmtDate(d.movedFrom)}` : d.extendable ? ' · may be extended' : ''}`
       const to = `/filings/${d.dept}`
       const statutory = { title: d.title, detail: d.detail }
       if (within(d.date)) out.push({ id: d.id, date: d.date, title: d.title, sub, tone, kind: 'Statutory', to, dept: d.dept, statutory })
@@ -149,7 +150,7 @@ function useEvents(from: string, to: string): CalEvent[] {
       }
     }
     return out.sort((a, b) => a.date.localeCompare(b.date))
-  }, [me, clients, tasks, leads, services, consultations, reminders, employees, from, to])
+  }, [me, clients, tasks, leads, services, consultations, reminders, employees, from, to, moves])
 }
 
 /* ---------- Reminder form ---------- */

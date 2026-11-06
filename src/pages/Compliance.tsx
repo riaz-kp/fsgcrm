@@ -8,8 +8,9 @@ import { auditSheet, downloadSheets, gstSheet, itSheet, serviceSheet, tdsSheet, 
 import { addDays, cn, currentGstPeriod, financialYear, fmtDate, inr, parseISO, periodLabel, shiftPeriod, todayISO, whatsappHref } from '../lib/format'
 import { FIRM_NAME, GST_DATA_TYPES, GST_STATUS, SERVICE_KINDS, SIMPLE_STATUS, fillTemplate, options, type Tone, type TrackerTab } from '../lib/meta'
 import { greetingFor } from '../lib/statusMessage'
-import { pickable, useCan, useCurrentUser, useStore, useTemplate } from '../store'
-import type { AuditFiling, Client, GstDataType, GstFiling, ItFiling, ServiceKind, SimpleStatus, TdsPayment } from '../types'
+import { useStoredState } from '../lib/useStoredState'
+import { pickable, useCan, useCurrentUser, useDeadlineMoves, useStore, useTemplate } from '../store'
+import type { AuditFiling, Client, GstDataType, GstFiling, ItFiling, ServiceJob, ServiceKind, SimpleStatus, TdsFiling, TdsPayment } from '../types'
 
 /* ---------- Small inline editors shared by every tracker ---------- */
 
@@ -263,8 +264,8 @@ function useFilters() {
 
 type Filters = ReturnType<typeof useFilters>
 
-/** `lead` sits before the search box (a period or a set of tabs); children are the tracker's own filters. */
-function FilterBar({ f, lead, children }: { f: Filters; lead?: ReactNode; children?: ReactNode }) {
+/** `lead` sits before the search box (a period or a set of tabs); children are the tracker's own filters; `sort` comes last. */
+function FilterBar({ f, lead, sort, children }: { f: Filters; lead?: ReactNode; sort?: ReactNode; children?: ReactNode }) {
   const employees = useStore((s) => s.employees)
   return (
     <div className="border-b border-ink-100">
@@ -283,6 +284,7 @@ function FilterBar({ f, lead, children }: { f: Filters; lead?: ReactNode; childr
             </option>
           ))}
         </Select>
+        {sort}
       </div>
       {f.clientId && (
         <p className="flex flex-wrap items-center gap-2 px-3 pb-3 text-[13px] text-ink-600">
@@ -318,6 +320,70 @@ function FilterSelect<K extends string>({ value, onChange, label, any, items }: 
     </Select>
   )
 }
+
+/* ---------- Sorting ---------- */
+
+interface SortOption<T> {
+  label: string
+  /** None keeps the rows in the order they were added. */
+  cmp?: (a: T, b: T) => number
+  /** Only on offer to people who may see fees. */
+  fees?: boolean
+}
+
+/** One-time jobs carry the party's name, as some are for people who are not clients yet. */
+type Row = { clientId?: string; assigneeId: string; party?: string }
+
+/** Sorts every tracker has: as added, by client name or code, by who it is assigned to. Ties go by client name. */
+function useBaseSorts<T extends Row>() {
+  const clients = useClientMap()
+  const employees = useStore((s) => s.employees)
+  return useMemo(() => {
+    const people = new Map(employees.map((e) => [e.id, e.name]))
+    const nameOf = (r: T) => r.party || clients.get(r.clientId ?? '')?.name || ''
+    const byName = (a: T, b: T) => nameOf(a).localeCompare(nameOf(b), 'en', { sensitivity: 'base' })
+    const code = (r: T) => clients.get(r.clientId ?? '')?.code ?? ''
+    // Unassigned rows go last.
+    const who = (r: T) => people.get(r.assigneeId) ?? '\uffff'
+    return {
+      byName,
+      sorts: {
+        added: { label: 'As added' },
+        name: { label: 'Client A–Z', cmp: byName },
+        name_desc: { label: 'Client Z–A', cmp: (a, b) => byName(b, a) },
+        code: { label: 'Client code', cmp: (a, b) => code(a).localeCompare(code(b), 'en', { numeric: true }) || byName(a, b) },
+        assignee: { label: 'Assigned to', cmp: (a, b) => who(a).localeCompare(who(b)) || byName(a, b) },
+      } satisfies Record<string, SortOption<T>>,
+    }
+  }, [clients, employees])
+}
+
+/** Missing dates first (nothing in yet), then the earliest. */
+const byDate = (a?: string, b?: string) => (a ?? '').localeCompare(b ?? '')
+
+/** One tracker's sort, remembered in this browser. Returns the picker for the filter bar and a function that sorts rows. */
+function useSort<T>(tab: TrackerTab, options: Record<string, SortOption<T>>, fees: boolean, initial = 'added') {
+  const [stored, setSort] = useStoredState<string>(`fsg-${tab}-sort`, initial)
+  const offered = Object.keys(options).filter((k) => !options[k].fees || fees)
+  const key = offered.includes(stored) ? stored : initial
+  const cmp = options[key]?.cmp
+  return {
+    sort: (rows: T[]) => (cmp ? [...rows].sort(cmp) : rows),
+    picker: (
+      <Select small fit value={key} onChange={(e) => setSort(e.target.value)} aria-label="Sort by" className="max-sm:min-w-0 max-sm:flex-1 max-sm:basis-[40%]">
+        {offered.map((k) => (
+          <option key={k} value={k}>
+            Sort: {options[k].label}
+          </option>
+        ))}
+      </Select>
+    ),
+  }
+}
+
+const statusRank = <K extends string>(order: K[]) => (s: K) => order.indexOf(s)
+const SIMPLE_ORDER = statusRank(Object.keys(SIMPLE_STATUS) as SimpleStatus[])
+const GST_ORDER = statusRank(Object.keys(GST_STATUS) as GstFiling['gstr1'][])
 
 function NoMatch({ onClear }: { onClear: () => void }) {
   return <Empty icon={<SearchX size={20} />} title="Nothing matches these filters" hint="Try a different search, or clear the filters to see every row." action={<Button onClick={onClear}>Clear filters</Button>} />
@@ -376,6 +442,7 @@ function DataReminders({ rows, onClose }: { rows: GstFiling[]; onClose: () => vo
   const today = todayISO()
   const [picked, setPicked] = useState(rows[0]?.id)
   const [edits, setEdits] = useState<Record<string, string>>({})
+  const moves = useDeadlineMoves()
 
   const draft = (g: GstFiling) => {
     const c = clients.get(g.clientId)
@@ -383,7 +450,7 @@ function DataReminders({ rows, onClose }: { rows: GstFiling[]; onClose: () => vo
       greeting: greetingFor(c),
       client: c?.name ?? 'your business',
       month: periodLabel(g.period),
-      due: parseISO(gstr1Due(g.period, c?.gstFrequency)).toLocaleDateString('en-IN', { day: 'numeric', month: 'long' }),
+      due: parseISO(gstr1Due(g.period, c?.gstFrequency, moves)).toLocaleDateString('en-IN', { day: 'numeric', month: 'long' }),
       staff: me.name,
       firm: FIRM_NAME,
     })
@@ -507,14 +574,30 @@ function GstTracker() {
     (view === 'no_data' && g.gstr1 !== 'na' && !g.dataIn) ||
     (view === 'filed' && g.gstr1 !== 'na' && isDone(g.gstr1) && isDone(g.gstr3b))
 
+  const base = useBaseSorts<GstFiling>()
+  const { sort, picker } = useSort<GstFiling>(
+    'gst',
+    {
+      ...base.sorts,
+      // Returns marked N/A have no data to wait for, so they go last.
+      data: { label: 'Data in, not in first', cmp: (a, b) => Number(a.gstr1 === 'na') - Number(b.gstr1 === 'na') || byDate(a.dataIn, b.dataIn) || base.byName(a, b) },
+      gstr1: { label: 'GSTR-1 status', cmp: (a, b) => GST_ORDER(a.gstr1) - GST_ORDER(b.gstr1) || base.byName(a, b) },
+      gstr3b: { label: 'GSTR-3B status', cmp: (a, b) => GST_ORDER(a.gstr3b) - GST_ORDER(b.gstr3b) || base.byName(a, b) },
+      balance: { label: 'Fee balance, highest first', fees: true, cmp: (a, b) => balance(b) - balance(a) || base.byName(a, b) },
+    },
+    fees,
+  )
+
   const all = useMemo(() => gst.filter((g) => g.period === period), [gst, period])
-  const rows = all.filter(
-    (g) =>
-      f.match(g) &&
-      inView(g) &&
-      (!freq || (clients.get(g.clientId)?.gstFrequency ?? 'M') === freq) &&
-      (!dataType || g.dataType === dataType) &&
-      (!owing || (fees && balance(g) > 0)),
+  const rows = sort(
+    all.filter(
+      (g) =>
+        f.match(g) &&
+        inView(g) &&
+        (!freq || (clients.get(g.clientId)?.gstFrequency ?? 'M') === freq) &&
+        (!dataType || g.dataType === dataType) &&
+        (!owing || (fees && balance(g) > 0)),
+    ),
   )
   const live = rows.filter((g) => g.gstr1 !== 'na')
   const filed = (k: 'gstr1' | 'gstr3b') => live.filter((g) => g[k] === 'filed' || g[k] === 'nil').length
@@ -535,6 +618,7 @@ function GstTracker() {
     <Card>
       <FilterBar
         f={f}
+        sort={picker}
         lead={
           <Select small fit value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Return period" className="font-semibold max-sm:w-full">
             {periods.map((p) => (
@@ -704,6 +788,8 @@ const PAYMENT: Array<{ value: TdsPayment; label: string; tone: Tone }> = [
   { value: 'na', label: 'N/A', tone: 'neutral' },
 ]
 
+const PAYMENT_ORDER = statusRank<TdsPayment>(['due', 'paid', 'na'])
+
 const QUARTERS = [0, 1, 2, 3].map((n) => ({ value: String(n), label: `Q${n + 1} return` }))
 
 function TdsTracker() {
@@ -748,14 +834,28 @@ function TdsTracker() {
     updateTds(t.id, { dataIn })
   }
 
-  const rows = inYear.filter(
-    (t) =>
-      f.match(t) &&
-      (!payment || paymentFor(t) === payment) &&
-      // With a quarter picked the status applies to it; without one, to any quarter.
-      (!status || (quarter ? t.quarters[Number(quarter)] === status : t.quarters.includes(status))) &&
-      (!notIn || !t.dataIn[month]) &&
-      (!owing || (fees && owed(t) > 0)),
+  const base = useBaseSorts<TdsFiling>()
+  const { sort, picker } = useSort<TdsFiling>(
+    'tds',
+    {
+      ...base.sorts,
+      data: { label: 'Data in, not in first', cmp: (a, b) => byDate(a.dataIn[month], b.dataIn[month]) || base.byName(a, b) },
+      payment: { label: 'Payment, due first', cmp: (a, b) => PAYMENT_ORDER(paymentFor(a)) - PAYMENT_ORDER(paymentFor(b)) || base.byName(a, b) },
+      balance: { label: 'Fee balance, highest first', fees: true, cmp: (a, b) => owed(b) - owed(a) || base.byName(a, b) },
+    },
+    fees,
+  )
+
+  const rows = sort(
+    inYear.filter(
+      (t) =>
+        f.match(t) &&
+        (!payment || paymentFor(t) === payment) &&
+        // With a quarter picked the status applies to it; without one, to any quarter.
+        (!status || (quarter ? t.quarters[Number(quarter)] === status : t.quarters.includes(status))) &&
+        (!notIn || !t.dataIn[month]) &&
+        (!owing || (fees && owed(t) > 0)),
+    ),
   )
   const feeBalance = rows.reduce((s, t) => s + owed(t), 0)
   const dirty = f.dirty || !!payment || !!quarter || !!status || owing || notIn
@@ -773,6 +873,7 @@ function TdsTracker() {
     <Card>
       <FilterBar
         f={f}
+        sort={picker}
         lead={
           <Select small fit value={month} onChange={(e) => setMonth(e.target.value)} aria-label="Payment month" className="font-semibold max-sm:w-full">
             {months.map((m) => (
@@ -919,14 +1020,29 @@ function ItTracker() {
   const [owing, setOwing] = useState(false)
   const [notIn, setNotIn] = useState(false)
   const done = (r: ItFiling) => isClosed(r.status)
+  const moves = useDeadlineMoves()
   // A new assessment year's rows come in each April; earlier years stay for late returns.
   const ays = useMemo(() => [...new Set([financialYear(), ...it.map((r) => r.ay)])].sort().reverse(), [it])
   const [ay, setAy] = useState(financialYear)
   const inYear = useMemo(() => it.filter((r) => r.ay === ay), [it, ay])
 
+  const base = useBaseSorts<ItFiling>()
+  const due = (r: ItFiling) => itDueDate(r, clients.get(r.clientId), moves)
+  const { sort, picker } = useSort<ItFiling>(
+    'it',
+    {
+      ...base.sorts,
+      due: { label: 'Due date', cmp: (a, b) => byDate(due(a), due(b)) || base.byName(a, b) },
+      status: { label: 'Status', cmp: (a, b) => SIMPLE_ORDER(a.status) - SIMPLE_ORDER(b.status) || base.byName(a, b) },
+      data: { label: 'Data in, not in first', cmp: (a, b) => byDate(a.dataIn, b.dataIn) || base.byName(a, b) },
+      balance: { label: 'Fee balance, highest first', fees: true, cmp: (a, b) => b.fee - b.received - (a.fee - a.received) || base.byName(a, b) },
+    },
+    fees,
+  )
+
   // The tabs count what the other filters leave, so the numbers match the table.
   const matched = inYear.filter((r) => f.match(r) && (!status || r.status === status) && (!notIn || !r.dataIn) && (!owing || (fees && r.fee - r.received > 0)))
-  const rows = kind === 'all' ? matched : matched.filter((r) => r.kind === kind)
+  const rows = sort(kind === 'all' ? matched : matched.filter((r) => r.kind === kind))
   // A return's fee falls due once it is filed.
   const feeBalance = rows.reduce((s, r) => s + (done(r) ? Math.max(0, r.fee - r.received) : 0), 0)
   const dirty = f.dirty || kind !== 'all' || !!status || owing || notIn
@@ -942,6 +1058,7 @@ function ItTracker() {
     <Card>
       <FilterBar
         f={f}
+        sort={picker}
         lead={
           <Segmented
             value={kind}
@@ -1019,7 +1136,7 @@ function ItTracker() {
                   <Badge tone={r.kind === 'audit' ? 'amber' : 'neutral'}>{r.kind === 'audit' ? 'Audit case' : 'Non-audit'}</Badge>
                 </Td>
                 <Td label="Due" className="text-[13px]">
-                  <Due date={itDueDate(r, c)} done={done(r)} compact />
+                  <Due date={due(r)} done={done(r)} compact />
                 </Td>
                 <Td label="Data in">
                   <DataIn value={r.dataIn} onChange={(dataIn) => updateIt(r.id, { dataIn })} />
@@ -1047,7 +1164,8 @@ function ItTracker() {
         </TableShell>
       )}
       <Footer shown={rows.length} total={inYear.length} dirty={dirty} onClear={clear} onExport={() => downloadSheets(`FSG income tax AY ${ay}`, [itSheet(x, rows)])}>
-        AY {ay} · non-audit individuals 31 Jul, proprietorships 31 Aug, audit cases 31 Oct. The government may extend these dates.
+        AY {ay} · non-audit individuals {fmtDate(itDueDate({ ay, kind: 'non_audit' }, undefined, moves))}, proprietorships {fmtDate(itDueDate({ ay, kind: 'non_audit' }, { category: 'Proprietorship' }, moves))}, audit cases{' '}
+        {fmtDate(itDueDate({ ay, kind: 'audit' }, undefined, moves))}. When the government extends a date, change it in Settings → Deadlines.
       </Footer>
     </Card>
   )
@@ -1072,14 +1190,29 @@ function AuditTracker() {
   // As with returns, an audit's fee falls due once it is signed off; what comes in earlier is an advance.
   const owed = (a: AuditFiling) => (isClosed(a.status) ? Math.max(0, a.fee - a.received) : 0)
 
-  const rows = audits.filter(
-    (a) =>
-      f.match(a) &&
-      (!kind || a.kind === kind) &&
-      (!status || a.status === status) &&
-      (!recon || a.reconciliation === (recon === 'done')) &&
-      (!notIn || !a.dataIn) &&
-      (!owing || (fees && owed(a) > 0)),
+  const base = useBaseSorts<AuditFiling>()
+  const { sort, picker } = useSort<AuditFiling>(
+    'audit',
+    {
+      ...base.sorts,
+      due: { label: 'Due date', cmp: (a, b) => byDate(a.dueDate, b.dueDate) || base.byName(a, b) },
+      status: { label: 'Status', cmp: (a, b) => SIMPLE_ORDER(a.status) - SIMPLE_ORDER(b.status) || base.byName(a, b) },
+      data: { label: 'Data in, not in first', cmp: (a, b) => byDate(a.dataIn, b.dataIn) || base.byName(a, b) },
+      balance: { label: 'Fee balance, highest first', fees: true, cmp: (a, b) => owed(b) - owed(a) || base.byName(a, b) },
+    },
+    fees,
+  )
+
+  const rows = sort(
+    audits.filter(
+      (a) =>
+        f.match(a) &&
+        (!kind || a.kind === kind) &&
+        (!status || a.status === status) &&
+        (!recon || a.reconciliation === (recon === 'done')) &&
+        (!notIn || !a.dataIn) &&
+        (!owing || (fees && owed(a) > 0)),
+    ),
   )
   const feeBalance = rows.reduce((s, a) => s + owed(a), 0)
   const dirty = f.dirty || !!kind || !!status || !!recon || owing || notIn
@@ -1094,7 +1227,7 @@ function AuditTracker() {
 
   return (
     <Card>
-      <FilterBar f={f}>
+      <FilterBar f={f} sort={picker}>
         <FilterSelect value={kind} onChange={setKind} label="Kind of audit" any="Every kind of audit" items={AUDIT_KINDS.filter((k) => audits.some((a) => a.kind === k.value))} />
         <FilterSelect value={status} onChange={setStatus} label="Audit status" any="Any status" items={SIMPLE_ITEMS} />
         <FilterSelect
@@ -1309,16 +1442,36 @@ function ServiceTracker() {
   const today = todayISO()
   const overdue = (s: (typeof services)[number]) => s.status !== 'completed' && s.committedDate < today
 
-  const rows = useMemo(
-    () => [...services].sort((a, b) => Number(a.status === 'completed') - Number(b.status === 'completed') || a.committedDate.localeCompare(b.committedDate)),
-    [services],
-  ).filter(
-    (s) =>
-      f.match(s, `${s.party} ${s.kind} ${s.details ?? ''}`) &&
-      (!kind || s.kind === kind) &&
-      (!status || s.status === status) &&
-      (!late || overdue(s)) &&
-      (!notIn || (!s.dataIn && s.status !== 'completed')),
+  const base = useBaseSorts<ServiceJob>()
+  const { sort, picker } = useSort<ServiceJob>(
+    'services',
+    {
+      open: {
+        label: 'Open first, by committed date',
+        cmp: (a, b) => Number(a.status === 'completed') - Number(b.status === 'completed') || a.committedDate.localeCompare(b.committedDate),
+      },
+      ...base.sorts,
+      added: { label: 'Newest first' },
+      name: { label: 'Party A–Z', cmp: base.byName },
+      name_desc: { label: 'Party Z–A', cmp: (a, b) => base.byName(b, a) },
+      committed: { label: 'Committed date', cmp: (a, b) => a.committedDate.localeCompare(b.committedDate) || base.byName(a, b) },
+      status: { label: 'Status', cmp: (a, b) => SIMPLE_ORDER(a.status) - SIMPLE_ORDER(b.status) || base.byName(a, b) },
+      data: { label: 'Data in, not in first', cmp: (a, b) => byDate(a.dataIn, b.dataIn) || base.byName(a, b) },
+      balance: { label: 'Fee balance, highest first', fees: true, cmp: (a, b) => b.fee - b.received - (a.fee - a.received) || base.byName(a, b) },
+    },
+    fees,
+    'open',
+  )
+
+  const rows = sort(
+    services.filter(
+      (s) =>
+        f.match(s, `${s.party} ${s.kind} ${s.details ?? ''}`) &&
+        (!kind || s.kind === kind) &&
+        (!status || s.status === status) &&
+        (!late || overdue(s)) &&
+        (!notIn || (!s.dataIn && s.status !== 'completed')),
+    ),
   )
   const open = rows.filter((s) => s.status !== 'completed')
   const feeBalance = rows.reduce((sum, s) => sum + Math.max(0, s.fee - s.received), 0)
@@ -1333,7 +1486,7 @@ function ServiceTracker() {
 
   return (
     <Card>
-      <FilterBar f={f}>
+      <FilterBar f={f} sort={picker}>
         <FilterSelect value={kind} onChange={setKind} label="Service" any="Every service" items={SERVICE_KINDS.map((k) => ({ value: k, label: k }))} />
         <FilterSelect value={status} onChange={setStatus} label="Job status" any="Any status" items={SIMPLE_ITEMS} />
         <label className="flex h-8 items-center gap-2 px-1 text-[13px] font-semibold text-ink-600">

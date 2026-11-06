@@ -6,7 +6,7 @@ import { Avatar, Badge, Button, Card, CardHeader, Empty, Progress, TONE_BAR } fr
 import { statutoryDeadlines } from '../lib/deadlines'
 import { addDays, cn, currentGstPeriod, daysUntil, fmtDate, fmtWeekday, fmtTime, greeting, inr, longToday, periodLabel, todayISO } from '../lib/format'
 import { DEPARTMENTS, LEAD_STATUS, LEAD_STATUS_ORDER, PRIORITIES, TASK_STATUS, TASK_STATUS_ORDER, TRACKERS } from '../lib/meta'
-import { birthdayOf, can, useCurrentUser, useLookup, useStore, useVisibleTasks } from '../store'
+import { birthdayOf, can, useCurrentUser, useDeadlineMoves, useLookup, useStore, useVisibleTasks } from '../store'
 import type { Task } from '../types'
 
 function GstProgress() {
@@ -279,13 +279,14 @@ function Birthdays() {
 
 function Deadlines() {
   const clients = useStore((s) => s.clients)
+  const moves = useDeadlineMoves()
   const items = useMemo(() => {
     const today = todayISO()
-    return statutoryDeadlines(today, addDays(today, 45))
+    return statutoryDeadlines(today, addDays(today, 45), moves)
       .map((d) => ({ ...d, count: clients.filter(d.applies).length }))
       .filter((d) => d.count > 0)
       .slice(0, 6)
-  }, [clients])
+  }, [clients, moves])
 
   return (
     <Card>
@@ -317,7 +318,7 @@ function Deadlines() {
                       <span className="font-semibold text-ink-700">staff cut-off {fmtDate(d.internalDate)}</span>
                     </>
                   )}
-                  {d.extendable && ' · may be extended'}
+                  {d.movedFrom ? ` · moved from ${fmtDate(d.movedFrom)}` : d.extendable && ' · may be extended'}
                 </p>
               </div>
               <Badge tone={n <= 3 ? 'red' : n <= 10 ? 'amber' : 'neutral'}>{n === 0 ? 'Today' : `${n}d`}</Badge>

@@ -3,19 +3,20 @@ import { useMemo, useRef, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { Avatar, Badge, Button, Card, CardHeader, Empty, Field, IconButton, Input, Modal, PageHeader, Segmented, Select, Td, Textarea, Th } from '../components/ui'
 import { CHECKLISTS, checklistTitle } from '../data/requirements'
-import { gstr1Due } from '../lib/deadlines'
-import { cn, currentGstPeriod, fmtDate, periodLabel, todayISO } from '../lib/format'
+import { SCOPE_DEADLINES, gstr1Due, statutoryDeadlines } from '../lib/deadlines'
+import { addDays, cn, currentGstPeriod, fmtDate, fmtWeekday, periodLabel, shiftPeriod, todayISO } from '../lib/format'
 import { FIRM_NAME, PERMISSIONS, ROLE_PERMISSIONS, ROLES, TEMPLATES, TRACKERS, fillTemplate } from '../lib/meta'
 import { LIVE } from '../lib/supabase'
-import { managesLogins, permissionsOf, useCan, useCurrentUser, useScopes, useStore } from '../store'
-import type { Employee, Permission, ScopeDef, TemplateKey, TrackerTab } from '../types'
+import { managesLogins, permissionsOf, useCan, useCurrentUser, useDeadlineMoves, useScopes, useStore } from '../store'
+import type { Employee, Permission, ScopeDef, ScopeKey, TemplateKey, TrackerTab } from '../types'
 import BackupSettings from '../components/Backup'
 import ChangeHistory from '../components/ChangeHistory'
 import Logins from './SettingsLogins'
 
-type Tab = 'scopes' | 'permissions' | 'messages' | 'history' | 'backup' | 'logins'
+type Tab = 'scopes' | 'deadlines' | 'permissions' | 'messages' | 'history' | 'backup' | 'logins'
 const TABS: Array<{ value: Tab; label: string }> = [
   { value: 'scopes', label: 'Scopes of work' },
+  { value: 'deadlines', label: 'Deadlines' },
   { value: 'permissions', label: 'Permissions' },
   { value: 'messages', label: 'WhatsApp messages' },
   { value: 'history', label: 'Change history' },
@@ -247,10 +248,92 @@ function Scopes() {
         </table>
       </div>
       <p className="px-5 py-3 text-xs text-ink-500">
-        Statutory deadlines are worked out from the built-in scopes, so those can be renamed or moved to another group but not deleted. A new scope has no deadlines of its own: add a reminder on the Calendar page for any date it brings.
+        Statutory deadlines are worked out from the built-in scopes, so those can be renamed or moved to another group but not deleted. When the government extends one, change its date under Deadlines. A new scope has no deadlines of its own: add a reminder on the Calendar page for any date it brings.
       </p>
       {editing && <ScopeForm scope={editing === 'new' ? undefined : editing} onClose={() => setEditing(undefined)} />}
       {deleting && <DeleteScope scope={deleting} onClose={() => setDeleting(undefined)} />}
+    </Card>
+  )
+}
+
+/* ---------- Deadlines ---------- */
+
+/** The statutory dates each built-in scope brings, from last month to a year ahead, each one open to a new date. */
+function Deadlines() {
+  const scopes = useScopes()
+  const moves = useDeadlineMoves()
+  const moveDeadline = useStore((s) => s.moveDeadline)
+  const clients = useStore((s) => s.clients)
+  const withDates = scopes.list.filter((s) => s.key in SCOPE_DEADLINES)
+  const [scope, setScope] = useState<ScopeKey>(withDates[0]?.key ?? 'gst_filing')
+  const today = todayISO()
+  // Listed by their usual dates, so a date moved a long way still sits where people look for it.
+  const rows = useMemo(() => {
+    const from = `${shiftPeriod(today.slice(0, 7), -1)}-01`
+    return statutoryDeadlines(from, addDays(today, 365))
+  }, [today])
+  const shown = rows.filter((d) => d.scope === scope)
+  const movedIn = (key: ScopeKey) => rows.filter((d) => d.scope === key && moves[d.id] && moves[d.id] !== d.date).length
+  const set = (id: string, usual: string, date: string) => moveDeadline(scope, id, date && date !== usual ? date : null)
+
+  return (
+    <Card>
+      <CardHeader title="Deadlines" hint="Change a due date when the government extends it. The Calendar, Dashboard, bell, client pages and income tax tracker all move with it." />
+      <div className="px-5 pb-3">
+        <Segmented
+          value={scope}
+          onChange={setScope}
+          items={withDates.map((s) => ({ value: s.key, label: s.label, count: movedIn(s.key) || undefined }))}
+        />
+        <p className="mt-2 text-[13px] text-ink-500">
+          {SCOPE_DEADLINES[scope]} · {clients.filter((c) => c.active && c.scopes.includes(scope)).length} active clients have this scope
+        </p>
+      </div>
+      <div className="@container overflow-x-auto">
+        <table className="stack w-full min-w-[680px] text-sm">
+          <thead className="border-y border-ink-100 bg-ink-50/60">
+            <tr>
+              <Th>Deadline</Th>
+              <Th>Usual date</Th>
+              <Th>Due on</Th>
+              <Th />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-ink-100">
+            {shown.map((d) => {
+              const moved = moves[d.id] && moves[d.id] !== d.date ? moves[d.id] : undefined
+              const date = moved ?? d.date
+              return (
+                <tr key={d.id} className={cn('relative', date < today && 'text-ink-400')}>
+                  <Td className="@max-3xl:pr-24">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className={cn('font-semibold', date < today ? 'text-ink-500' : 'text-ink-900')}>{d.title}</span>
+                      {moved && <Badge tone="amber">Moved</Badge>}
+                    </span>
+                    <span className="block text-xs text-ink-500">{d.detail}</span>
+                  </Td>
+                  <Td label="Usual date" className={cn('tnum text-[13px] whitespace-nowrap', moved ? 'text-ink-400 line-through' : 'text-ink-600')}>
+                    {fmtWeekday(d.date)} {fmtDate(d.date, true)}
+                  </Td>
+                  <Td label="Due on">
+                    <Input type="date" small value={date} onChange={(e) => set(d.id, d.date, e.target.value)} aria-label={`${d.title} ${d.detail} due on`} className="w-40" />
+                  </Td>
+                  <Td className="text-right whitespace-nowrap @max-3xl:absolute @max-3xl:top-2.5 @max-3xl:right-3">
+                    {moved && (
+                      <Button size="sm" variant="ghost" icon={<RotateCcw size={14} />} onClick={() => moveDeadline(scope, d.id, null)}>
+                        Usual date
+                      </Button>
+                    )}
+                  </Td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="px-5 py-3 text-xs text-ink-500">
+        Saved as you change it, for everyone. Where the firm keeps a staff cut-off a day early (GSTR-1, GSTR-3B), the cut-off moves with the date. GSTR-1 for quarterly clients stays on the 13th.
+      </p>
     </Card>
   )
 }
@@ -541,11 +624,12 @@ export default function Settings() {
 
   return (
     <>
-      <PageHeader title="Settings" subtitle="Scopes of work, who can do what, the wording of WhatsApp messages, who changed what, and backups. Changes apply straight away." />
+      <PageHeader title="Settings" subtitle="Scopes of work and their deadlines, who can do what, the wording of WhatsApp messages, who changed what, and backups. Changes apply straight away." />
       <div className="mb-4">
         <Segmented value={tab as Tab} onChange={(t) => navigate(`/settings/${t}`)} items={tabs} />
       </div>
       {tab === 'scopes' && <Scopes />}
+      {tab === 'deadlines' && <Deadlines />}
       {tab === 'permissions' && <Permissions />}
       {tab === 'messages' && <Messages />}
       {tab === 'history' && <ChangeHistory filters />}

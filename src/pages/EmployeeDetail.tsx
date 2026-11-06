@@ -10,7 +10,7 @@ import { offDayName, timing, workingHours } from '../lib/attendance'
 import { ageFrom, currentGstPeriod, daysUntil, fmtDate, periodLabel, tenure, todayISO } from '../lib/format'
 import { workEntries } from '../lib/history'
 import { ATTENDANCE, ROLES, TASK_STATUS } from '../lib/meta'
-import { can, canSeeProfile, useCan, useCurrentUser, useLookup, useStore, useVisibleTasks } from '../store'
+import { can, canSeeProfile, useCan, useCurrentUser, useDeadlineMoves, useLookup, useStore, useVisibleTasks } from '../store'
 import type { Employee } from '../types'
 
 type Tab = 'profile' | 'work' | 'attendance'
@@ -168,6 +168,7 @@ function Work({ emp }: { emp: Employee }) {
   const visible = useVisibleTasks()
   const clients = useStore((s) => s.clients)
   const gst = useStore((s) => s.gst)
+  const moves = useDeadlineMoves()
   const tds = useStore((s) => s.tds)
   const it = useStore((s) => s.it)
   const audits = useStore((s) => s.audits)
@@ -183,8 +184,8 @@ function Work({ emp }: { emp: Employee }) {
   const review = open.filter((t) => t.status === 'in_review').length
 
   const history = useMemo(
-    () => workEntries({ gst, tds, it, audits, services, tasks: visible }, clients).filter((e) => e.assigneeId === emp.id),
-    [gst, tds, it, audits, services, visible, clients, emp.id],
+    () => workEntries({ gst, tds, it, audits, services, tasks: visible, moves }, clients).filter((e) => e.assigneeId === emp.id),
+    [gst, tds, it, audits, services, visible, clients, emp.id, moves],
   )
 
   // What sits with this person in each tracker right now.

@@ -115,6 +115,7 @@ const FIELD: Record<string, string> = {
   scopeGroup: 'Group',
   tracker: 'Tracker',
   detailHint: 'Asks for',
+  deadlines: 'Changed due dates',
 }
 
 const PEOPLE_FIELDS = new Set(['assigneeId', 'assignedById', 'ownerId', 'reportsTo', 'forId'])

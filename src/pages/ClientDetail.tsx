@@ -48,7 +48,7 @@ import { addDays, cn, currentGstPeriod, daysUntil, fileSize, fmtDate, inr, linkL
 import { MAX_FILE_MB, openClientFile, removeClientFile, uploadClientFile } from '../lib/files'
 import { CATEGORY_TONE, DEPARTMENTS, DOC_KINDS, GST_DATA_TYPES, GST_STATUS, PAYMENT_MODES, PORTALS, SIMPLE_STATUS, TASK_STATUS } from '../lib/meta'
 import { LIVE } from '../lib/supabase'
-import { useCan, useCurrentUser, useLookup, useScopes, useStore, useVisibleTasks } from '../store'
+import { useCan, useCurrentUser, useDeadlineMoves, useLookup, useScopes, useStore, useVisibleTasks } from '../store'
 import type { Clarification, Client, ClientDoc, Credential, DocKind, Dsc, PaymentMode, Portal, Recording, ScopeKey } from '../types'
 
 type Tab = 'overview' | 'clarifications' | 'fees' | 'logins' | 'dsc' | 'documents' | 'work' | 'history'
@@ -67,18 +67,19 @@ function Overview({ client, onEdit, onOpenWork }: { client: Client; onEdit?: () 
   const scopes = useScopes()
   const mine = scopes.list.filter((s) => client.scopes.includes(s.key))
   const groups = scopes.groups.filter((g) => mine.some((s) => s.group === g))
+  const moves = useDeadlineMoves()
   const deadlines = useMemo(() => {
     const today = todayISO()
     const until = addDays(today, 120)
-    const statutory = statutoryDeadlines(today, until)
+    const statutory = statutoryDeadlines(today, until, moves)
       .filter((d) => d.applies(client))
-      .map((d) => ({ id: d.id, date: d.date, title: d.title, detail: d.detail, badge: DEPARTMENTS[d.dept] }))
+      .map((d) => ({ id: d.id, date: d.date, title: d.title, detail: d.movedFrom ? `${d.detail} · moved from ${fmtDate(d.movedFrom)}` : d.detail, badge: DEPARTMENTS[d.dept] }))
     // A DSC that has run out stays here until it is renewed.
     const dscs = client.active
       ? client.dscs.filter((d) => d.expiry <= until).map((d) => ({ id: d.id, date: d.expiry, title: 'DSC expiry', detail: d.holder, badge: { label: 'DSC', tone: 'violet' as const } }))
       : []
     return [...dscs, ...statutory].sort((a, b) => a.date.localeCompare(b.date)).slice(0, 8)
-  }, [client])
+  }, [client, moves])
 
   return (
     <div className="grid gap-4 lg:grid-cols-5">
@@ -850,6 +851,7 @@ function Documents({ client }: { client: Client }) {
 function Work({ client, onMessage }: { client: Client; onMessage: () => void }) {
   const tasks = useVisibleTasks()
   const gst = useStore((s) => s.gst)
+  const moves = useDeadlineMoves()
   const tds = useStore((s) => s.tds)
   const it = useStore((s) => s.it)
   const audits = useStore((s) => s.audits)
@@ -858,8 +860,8 @@ function Work({ client, onMessage }: { client: Client; onMessage: () => void }) 
   const period = currentGstPeriod()
 
   const history = useMemo(
-    () => workEntries({ gst, tds, it, audits, services, tasks }, [client]).filter((e) => e.clientId === client.id),
-    [client, gst, tds, it, audits, services, tasks],
+    () => workEntries({ gst, tds, it, audits, services, tasks, moves }, [client]).filter((e) => e.clientId === client.id),
+    [client, gst, tds, it, audits, services, tasks, moves],
   )
   const mine = tasks.filter((t) => t.clientId === client.id).sort((a, b) => a.dueDate.localeCompare(b.dueDate))
   const g = gst.find((x) => x.clientId === client.id && x.period === period)
