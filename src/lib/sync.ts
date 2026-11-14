@@ -273,7 +273,7 @@ const pkColumns = (match: Row) => Object.keys(match).join(',')
  * Tracker rows are made from clients' scopes by whoever has the app open (see lib/trackerRows.ts), with ids worked
  * out from the client and the period, so two people can make the same row at once. The first one in is kept.
  */
-const MADE_FROM_SCOPES = new Set(['gst_filings', 'tds_filings', 'it_filings', 'audits'])
+const MADE_FROM_SCOPES = new Set(['gst_filings', 'tds_filings', 'it_filings', 'audits', 'services'])
 
 async function request(op: Op): Promise<{ error: PostgrestError | null; status: number; data: unknown }> {
   const db = supabase!

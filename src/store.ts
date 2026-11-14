@@ -270,6 +270,7 @@ export const useStore = create<State>()(
           ...(rows.tds.length && { tds: [...s.tds, ...rows.tds] }),
           ...(rows.it.length && { it: [...s.it, ...rows.it] }),
           ...(rows.audits.length && { audits: [...s.audits, ...rows.audits] }),
+          ...(rows.services.length && { services: [...rows.services, ...s.services] }),
         })),
 
       addEmployee: (e) =>

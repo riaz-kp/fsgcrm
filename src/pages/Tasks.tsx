@@ -1,4 +1,4 @@
-import { ArrowRightLeft, CheckCircle2, ListTodo, Plus, RotateCcw, Search, Send, Trash2, Undo2, X } from 'lucide-react'
+import { ArrowRightLeft, CheckCircle2, ListTodo, Pencil, Plus, RotateCcw, Search, Send, Trash2, Undo2, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Due, RecurringTag } from '../components/bits'
@@ -84,46 +84,47 @@ function ReassignForm({ tasks, onClose }: { tasks: Task[]; onClose: () => void }
   )
 }
 
-function TaskForm({ onClose }: { onClose: () => void }) {
+/** Assigns a new task, or, given one, edits it. A change of assignee goes through Reassign, which notes it on the task. */
+function TaskForm({ task, onClose }: { task?: Task; onClose: () => void }) {
   const addTask = useStore((s) => s.addTask)
+  const updateTask = useStore((s) => s.updateTask)
   const everyone = useStore((s) => s.employees)
   const employees = useMemo(() => pickable(everyone), [everyone])
   const clients = useStore((s) => s.clients)
   const [f, setF] = useState({
-    title: '',
-    description: '',
-    clientId: '',
-    department: 'gst' as Department,
-    assigneeId: employees.find((e) => e.role === 'trainee')?.id ?? employees[0]?.id ?? '',
-    priority: 'medium' as Priority,
-    dueDate: addDays(todayISO(), 7),
-    recurring: '' as Recurrence | '',
+    title: task?.title ?? '',
+    description: task?.description ?? '',
+    clientId: task?.clientId ?? '',
+    department: task?.department ?? ('gst' as Department),
+    assigneeId: task?.assigneeId ?? employees.find((e) => e.role === 'trainee')?.id ?? employees[0]?.id ?? '',
+    priority: task?.priority ?? ('medium' as Priority),
+    dueDate: task?.dueDate ?? addDays(todayISO(), 7),
+    recurring: (task?.recurring ?? '') as Recurrence | '',
   })
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((p) => ({ ...p, [k]: v }))
   const valid = f.title.trim() && f.dueDate && f.assigneeId
 
   const save = () => {
     if (!valid) return
-    addTask({
+    const fields = {
       title: f.title.trim(),
       description: f.description.trim() || undefined,
       clientId: f.clientId || undefined,
       department: f.department,
-      assigneeId: f.assigneeId,
       priority: f.priority,
       dueDate: f.dueDate,
       recurring: f.recurring || undefined,
-      status: 'to_begin',
-      progress: 0,
-    })
+    }
+    if (task) updateTask(task.id, fields)
+    else addTask({ ...fields, assigneeId: f.assigneeId, status: 'to_begin', progress: 0 })
     onClose()
   }
 
   return (
     <Modal
       wide
-      title="Assign a task"
-      subtitle="The assignee reports progress and remarks; you approve when it's done."
+      title={task ? 'Edit task' : 'Assign a task'}
+      subtitle={task ? 'Progress, status and remarks stay as they are.' : "The assignee reports progress and remarks; you approve when it's done."}
       onClose={onClose}
       footer={
         <>
@@ -131,7 +132,7 @@ function TaskForm({ onClose }: { onClose: () => void }) {
             Cancel
           </Button>
           <Button variant="primary" onClick={save} disabled={!valid}>
-            Assign task
+            {task ? 'Save changes' : 'Assign task'}
           </Button>
         </>
       }
@@ -144,7 +145,7 @@ function TaskForm({ onClose }: { onClose: () => void }) {
           <Select value={f.clientId} onChange={(e) => set('clientId', e.target.value)}>
             <option value="">Internal / no client</option>
             {clients
-              .filter((c) => c.active)
+              .filter((c) => c.active || c.id === task?.clientId)
               .map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -161,15 +162,17 @@ function TaskForm({ onClose }: { onClose: () => void }) {
             ))}
           </Select>
         </Field>
-        <Field label="Assign to">
-          <Select value={f.assigneeId} onChange={(e) => set('assigneeId', e.target.value)}>
-            {employees.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.name} — {e.title}
-              </option>
-            ))}
-          </Select>
-        </Field>
+        {!task && (
+          <Field label="Assign to">
+            <Select value={f.assigneeId} onChange={(e) => set('assigneeId', e.target.value)}>
+              {employees.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.name} — {e.title}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
         <Field label="Priority">
           <Select value={f.priority} onChange={(e) => set('priority', e.target.value as Priority)}>
             {PRIORITY_ORDER.map((p) => (
@@ -247,6 +250,7 @@ function TaskDrawer({ task, onClose }: { task: Task; onClose: () => void }) {
   const [text, setText] = useState('')
   const [reassigning, setReassigning] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [editing, setEditing] = useState(false)
   const c = client(task.clientId)
 
   const remark = (fallback?: string) => {
@@ -298,9 +302,14 @@ function TaskDrawer({ task, onClose }: { task: Task; onClose: () => void }) {
           </div>
           <div className="-mr-2 flex shrink-0">
             {head && (
-              <IconButton label="Delete task" onClick={() => setDeleting(true)} className="hover:text-rose-600">
-                <Trash2 size={16} />
-              </IconButton>
+              <>
+                <IconButton label="Edit task" onClick={() => setEditing(true)}>
+                  <Pencil size={16} />
+                </IconButton>
+                <IconButton label="Delete task" onClick={() => setDeleting(true)} className="hover:text-rose-600">
+                  <Trash2 size={16} />
+                </IconButton>
+              </>
             )}
             <IconButton label="Close" onClick={onClose}>
               <X size={18} />
@@ -450,6 +459,7 @@ function TaskDrawer({ task, onClose }: { task: Task; onClose: () => void }) {
       </footer>
       {reassigning && <ReassignForm tasks={[task]} onClose={() => setReassigning(false)} />}
       {deleting && <DeleteTask task={task} onClose={() => setDeleting(false)} onDeleted={onClose} />}
+      {editing && <TaskForm task={task} onClose={() => setEditing(false)} />}
     </Drawer>
   )
 }

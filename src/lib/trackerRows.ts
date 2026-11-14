@@ -1,11 +1,11 @@
-import type { AuditFiling, Client, Department, Employee, GstFiling, ItFiling, Task, TdsFiling } from '../types'
-import { financialYear, shiftPeriod, todayISO } from './format'
+import type { AuditFiling, Client, Department, Employee, GstFiling, ItFiling, ScopeDef, ServiceJob, ServiceKind, Task, TdsFiling } from '../types'
+import { addDays, financialYear, shiftPeriod, todayISO } from './format'
 
 /**
- * The rows a client's scopes of work call for in the GST, TDS, income tax and audit trackers. Every active client
- * with the scope gets a row for the period being worked on now, so adding a client, ticking a scope, or a new month
- * or year beginning is enough for the work to show up in its tracker. Rows are never removed when a scope is: they
- * are the work history.
+ * The rows a client's scopes of work call for in the GST, TDS, income tax, audit and one-time trackers. Every active
+ * client with the scope gets a row for the period being worked on now, so adding a client, ticking a scope, or a new
+ * month or year beginning is enough for the work to show up in its tracker. One-time scopes (a registration, an
+ * incorporation) get one job, ever. Rows are never removed when a scope is: they are the work history.
  *
  * Ids are worked out from the client and the period, so two people opening the app at once make the same row, and
  * the database keeps whichever arrives first (see lib/sync.ts).
@@ -15,6 +15,7 @@ export interface NewRows {
   tds: TdsFiling[]
   it: ItFiling[]
   audits: AuditFiling[]
+  services: ServiceJob[]
 }
 
 interface Sources {
@@ -25,15 +26,62 @@ interface Sources {
   tds: TdsFiling[]
   it: ItFiling[]
   audits: AuditFiling[]
+  services: ServiceJob[]
+  scopes: ScopeDef[]
   currentUserId: string
 }
 
 /** What decides, for a client without earlier rows, who the work goes to. */
-const WORK: Record<'gst' | 'tds' | 'it' | 'audit', { department: Department; duty: string }> = {
+const WORK: Record<'gst' | 'tds' | 'it' | 'audit' | 'services', { department: Department; duty: string }> = {
   gst: { department: 'gst', duty: 'gst filing' },
   tds: { department: 'tds', duty: 'tds filing' },
   it: { department: 'it', duty: 'it filing' },
   audit: { department: 'audit', duty: 'audit head' },
+  services: { department: 'registration', duty: 'registration' },
+}
+
+/** Days between a one-time scope being ticked and the date its job is first committed for; as in the job form. */
+const SERVICE_DAYS = 10
+
+const INCORPORATION: Partial<Record<Client['category'], ServiceKind>> = {
+  Company: 'Company incorporation',
+  LLP: 'LLP incorporation',
+  Partnership: 'Partnership formation',
+}
+
+/** The one-time job kind for a scope followed in the one-time tracker. Scopes without a kind of their own go under Other. */
+function serviceFor(scope: ScopeDef, c: Client): { kind: ServiceKind; details?: string; same: (j: ServiceJob) => boolean } {
+  const note = c.scopeDetails?.[scope.key]?.trim() || undefined
+  const plain = (kind: ServiceKind) => ({ kind, details: note, same: (j: ServiceJob) => j.kind === kind })
+  const other = (details: string) => ({
+    kind: 'Other' as const,
+    details,
+    same: (j: ServiceJob) => j.kind === 'Other' && (j.details ?? '').trim().toLowerCase() === details.toLowerCase(),
+  })
+  switch (scope.key) {
+    case 'gst_registration':
+      return plain('GST registration')
+    case 'legal_metrology':
+      return plain('Legal metrology')
+    case 'certification':
+      return plain('Certification')
+    case 'tan_application':
+      return plain('TAN application')
+    case 'pan_application':
+      return plain('PAN application')
+    case 'other':
+      return plain('Other')
+    case 'incorporation': {
+      // Any incorporation counts, whatever the client is now: a firm may since have become a company.
+      const kinds: ServiceKind[] = Object.values(INCORPORATION)
+      const kind = INCORPORATION[c.category]
+      const fallback = other(note ?? scope.label)
+      const same = (j: ServiceJob) => kinds.includes(j.kind) || fallback.same(j)
+      return kind ? { kind, details: note, same } : { ...fallback, same }
+    }
+    default:
+      return other(note ? `${scope.label}: ${note}` : scope.label)
+  }
 }
 
 /** How many past months of GST a client with older rows is caught up on, when nobody opened the app for a while. */
@@ -71,7 +119,8 @@ function byClient<T extends { clientId?: string }>(rows: T[]): (clientId: string
 }
 
 export function missingTrackerRows(src: Sources, today = todayISO()): NewRows {
-  const out: NewRows = { gst: [], tds: [], it: [], audits: [] }
+  const out: NewRows = { gst: [], tds: [], it: [], audits: [], services: [] }
+  const oneTime = src.scopes.filter((s) => s.tracker === 'services')
   const y = trackerYears(today)
   const active = new Set(src.employees.filter((e) => e.active).map((e) => e.id))
   const gstOf = byClient(src.gst)
@@ -79,6 +128,8 @@ export function missingTrackerRows(src: Sources, today = todayISO()): NewRows {
   const itOf = byClient(src.it)
   const auditsOf = byClient(src.audits)
   const tasksOf = byClient(src.tasks)
+  const servicesOf = byClient(src.services)
+  const serviceIds = new Set(src.services.map((s) => s.id))
 
   /** Whoever did it last time; else whoever has the client's open task in that department; else the person in charge of it. */
   const assignee = (work: keyof typeof WORK, clientId: string, last?: { assigneeId: string }) => {
@@ -180,8 +231,30 @@ export function missingTrackerRows(src: Sources, today = todayISO()): NewRows {
     const internal = audits.filter((a) => a.kind === 'Internal audit')
     if (has('internal_audit') && !internal.some((a) => a.fy === y.auditFy))
       audit(`ia-${c.id}-${y.auditFy}`, 'Internal audit', y.internalAuditDue, latest(internal, (a) => a.fy))
+
+    // One job per one-time scope, unless the client already has that job (made here before, or added by hand).
+    const jobs = servicesOf(c.id)
+    for (const scope of oneTime) {
+      if (!has(scope.key)) continue
+      const id = `sv-${c.id}-${scope.key}`
+      const job = serviceFor(scope, c)
+      if (serviceIds.has(id) || jobs.some(job.same)) continue
+      out.services.push({
+        id,
+        party: c.name,
+        clientId: c.id,
+        kind: job.kind,
+        details: job.details,
+        status: 'to_begin',
+        committedDate: addDays(today, SERVICE_DAYS),
+        assigneeId: assignee('services', c.id, latest(jobs, (j) => j.committedDate)),
+        fee: 0,
+        received: 0,
+        remark: '',
+      })
+    }
   }
   return out
 }
 
-export const hasNewRows = (r: NewRows) => r.gst.length + r.tds.length + r.it.length + r.audits.length > 0
+export const hasNewRows = (r: NewRows) => r.gst.length + r.tds.length + r.it.length + r.audits.length + r.services.length > 0

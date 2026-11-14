@@ -23,7 +23,7 @@ export function useTrackerRows() {
     }
     soon()
     const unsubscribe = useStore.subscribe((s, prev) => {
-      if (s.clients !== prev.clients || s.currentUserId !== prev.currentUserId) soon()
+      if (s.clients !== prev.clients || s.scopes !== prev.scopes || s.currentUserId !== prev.currentUserId) soon()
     })
     const hourly = window.setInterval(soon, 60 * 60 * 1000)
     const onVisible = () => document.visibilityState === 'visible' && soon()
