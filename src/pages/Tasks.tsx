@@ -464,7 +464,9 @@ function TaskDrawer({ task, onClose }: { task: Task; onClose: () => void }) {
   )
 }
 
-type StatusTab = 'open' | TaskStatus
+type StatusTab = 'all' | 'open' | TaskStatus
+
+const inTab = (t: Task, s: StatusTab) => (s === 'all' ? true : s === 'open' ? t.status !== 'completed' : t.status === s)
 
 export default function Tasks() {
   const me = useCurrentUser()
@@ -479,12 +481,13 @@ export default function Tasks() {
   const preset = params.get('assignee') ?? ''
   const [mineOnly, setMineOnly] = useState<'mine' | 'all'>('all')
   // The dashboard links here with `?status=` (a status tab) and `?due=today` or `?due=late`.
-  const [tab, setTab] = useState<StatusTab>(() => (['open', ...TASK_STATUS_ORDER] as StatusTab[]).find((s) => s === params.get('status')) ?? 'open')
+  const [tab, setTab] = useState<StatusTab>(() => (['all', 'open', ...TASK_STATUS_ORDER] as StatusTab[]).find((s) => s === params.get('status')) ?? 'open')
   const [due, setDue] = useState<'today' | 'late' | ''>(() => (params.get('due') === 'today' || params.get('due') === 'late' ? (params.get('due') as 'today' | 'late') : ''))
   const [dept, setDept] = useState<Department | ''>('')
   const [assignee, setAssignee] = useState(preset)
   const [q, setQ] = useState('')
-  const [view, setView] = useState<'list' | 'board'>('list')
+  // The board unless a link asks for one status, which only the list can show.
+  const [view, setView] = useState<'list' | 'board'>(() => (params.get('status') ? 'list' : 'board'))
 
   const open = tasks.find((t) => t.id === params.get('open'))
   // One person's open tasks, to hand on together: when someone is away or has left.
@@ -503,11 +506,11 @@ export default function Tasks() {
     )
   }, [tasks, clientName, mineOnly, me.id, dept, assignee, q, due])
 
-  const count = (s: StatusTab) => base.filter((t) => (s === 'open' ? t.status !== 'completed' : t.status === s)).length
+  const count = (s: StatusTab) => base.filter((t) => inTab(t, s)).length
   const rows = useMemo(
     () =>
       base
-        .filter((t) => (tab === 'open' ? t.status !== 'completed' : t.status === tab))
+        .filter((t) => inTab(t, tab))
         .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || PRIORITY_ORDER.indexOf(a.priority) - PRIORITY_ORDER.indexOf(b.priority)),
     [base, tab],
   )
@@ -552,6 +555,7 @@ export default function Tasks() {
             value={tab}
             onChange={setTab}
             items={[
+              { value: 'all', label: 'All', count: count('all') },
               { value: 'open', label: 'All open', count: count('open') },
               ...TASK_STATUS_ORDER.map((s) => ({ value: s as StatusTab, label: TASK_STATUS[s].label, count: count(s) })),
             ]}

@@ -52,7 +52,8 @@ const lateBy = (minutes: number) => (minutes < 60 ? `${minutes} min` : fmtDurati
 
 /**
  * The on-time tick for a day someone worked. It is set from the time in when one is entered (in by the start of
- * their working hours), and clicking it changes it by hand: ticked is on time, unticked late.
+ * their working hours), and clicking it changes it by hand: ticked is on time, unticked late. Ticking it sets the
+ * time in, and a missing time out, to their working hours (see `setOnTime`).
  */
 export function OnTimeToggle({ entry, workFrom, name, onChange }: { entry?: AttendanceEntry; workFrom?: string; name: string; onChange: (onTime: boolean) => void }) {
   const away = !entry || entry.mark === 'L'
@@ -67,7 +68,7 @@ export function OnTimeToggle({ entry, workFrom, name, onChange }: { entry?: Atte
       aria-label={`${name} on time`}
       disabled={away}
       onClick={() => onChange(!on)}
-      title={away ? 'Mark them present or half day first' : on ? 'On time. Click if they came in late.' : 'Click to tick on time'}
+      title={away ? 'Mark them present or half day first' : on ? 'On time. Click if they came in late.' : workFrom ? 'Click to tick on time and set their usual hours as time in and out' : 'Click to tick on time'}
       className={cn(
         'inline-flex h-7 items-center gap-1.5 rounded-md px-1.5 text-xs font-semibold whitespace-nowrap ring-1 transition-colors ring-inset disabled:opacity-40',
         on ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : late ? 'bg-amber-50 text-amber-800 ring-amber-200' : 'bg-white text-ink-500 ring-ink-200 hover:bg-ink-50',

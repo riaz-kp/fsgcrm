@@ -382,6 +382,11 @@ export const useStore = create<State>()(
           if (!was || was.mark === 'L') return {}
           const entry: AttendanceEntry = { ...was, onTime }
           if (onTime === undefined) delete entry.onTime
+          // Ticking on time sets the clock to their usual hours: in at the start, and out at the end unless a time
+          // out is already there. Either can be corrected afterwards.
+          const emp = s.employees.find((e) => e.id === employeeId)
+          if (onTime && emp?.workFrom) entry.in = emp.workFrom
+          if (onTime && emp?.workTo && !entry.out) entry.out = emp.workTo
           return { attendance: { ...s.attendance, [employeeId]: { ...s.attendance[employeeId], [date]: entry } } }
         }),
       setOffDay: (date, name) =>

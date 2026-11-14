@@ -196,7 +196,7 @@ export default function AttendancePage() {
             })}
           </ul>
           <p className="px-5 py-3 text-xs text-ink-500">
-            Marking someone present or half day notes the time as their time in, and ticks on time if that is by the start of their working hours. Set the time out when they leave, and any overtime in hours; all of it can be corrected.
+            Marking someone present or half day notes the time as their time in, and ticks on time if that is by the start of their working hours. Ticking on time sets their time in, and time out if blank, to the hours on their profile. Set the time out when they leave, and any overtime in hours; all of it can be corrected.
           </p>
         </Card>
       )}
