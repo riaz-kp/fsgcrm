@@ -1,5 +1,5 @@
 import { ArrowRightLeft, CheckCircle2, ListTodo, Pencil, Plus, RotateCcw, Search, Send, Trash2, Undo2, X } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type DragEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Due, RecurringTag } from '../components/bits'
 import { Avatar, Badge, Button, Card, Drawer, Empty, Field, IconButton, Input, Modal, PageHeader, Person, Progress, Segmented, Select, StatusSelect, Td, Textarea, Th, TONE_BAR } from '../components/ui'
@@ -10,6 +10,28 @@ import type { Department, Priority, Recurrence, Task, TaskStatus } from '../type
 
 function progressTone(t: Task) {
   return t.status === 'completed' ? 'green' : daysUntil(t.dueDate) < 0 ? 'red' : t.status === 'in_review' ? 'amber' : 'blue'
+}
+
+/** Heads move a task anywhere. Its assignee takes it as far as "awaiting approval"; a head takes it on from there. */
+function canMove(t: Task, to: TaskStatus, who: { head: boolean; mine: boolean }) {
+  if (t.status === to) return false
+  if (who.head) return true
+  return who.mine && (t.status === 'to_begin' || t.status === 'in_progress') && to !== 'completed'
+}
+
+/** Change a task's status from the board or the drawer: progress follows, and the remark the buttons leave is left here too. */
+function useMoveTask() {
+  const updateTask = useStore((s) => s.updateTask)
+  const addTaskRemark = useStore((s) => s.addTaskRemark)
+  return (t: Task, to: TaskStatus, text?: string) => {
+    const back = t.status === 'in_review' || t.status === 'completed'
+    const progress = to === 'to_begin' ? 0 : to === 'in_progress' ? (back ? Math.min(t.progress, 80) : t.progress) : 100
+    const remark =
+      text?.trim() ||
+      (to === 'in_review' ? 'Submitted for approval.' : t.status !== 'in_review' ? '' : to === 'completed' ? 'Approved.' : 'Sent back for changes.')
+    if (remark) addTaskRemark(t.id, remark)
+    updateTask(t.id, { status: to, progress })
+  }
 }
 
 /** Hand one task, or all of someone's open tasks, to another person. Each task gets a remark saying so. */
@@ -246,6 +268,7 @@ function TaskDrawer({ task, onClose }: { task: Task; onClose: () => void }) {
   const canWork = (mine || head) && task.status !== 'completed'
   const updateTask = useStore((s) => s.updateTask)
   const addTaskRemark = useStore((s) => s.addTaskRemark)
+  const moveTask = useMoveTask()
   const { emp, client } = useLookup()
   const [text, setText] = useState('')
   const [reassigning, setReassigning] = useState(false)
@@ -278,6 +301,12 @@ function TaskDrawer({ task, onClose }: { task: Task; onClose: () => void }) {
     updateTask(task.id, { status: 'completed', progress: 100 })
   }
   const reopen = () => updateTask(task.id, { status: 'in_progress', progress: Math.min(task.progress, 80) })
+  // The same moves the board allows by dragging; a remark typed below goes with the change.
+  const statuses = options(TASK_STATUS).filter((o) => o.value === task.status || canMove(task, o.value, { head, mine }))
+  const move = (to: TaskStatus) => {
+    moveTask(task, to, text)
+    setText('')
+  }
 
   return (
     <Drawer onClose={onClose} label={task.title}>
@@ -286,9 +315,6 @@ function TaskDrawer({ task, onClose }: { task: Task; onClose: () => void }) {
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <Badge tone={DEPARTMENTS[task.department].tone}>{DEPARTMENTS[task.department].label}</Badge>
-              <Badge tone={TASK_STATUS[task.status].tone} dot>
-                {TASK_STATUS[task.status].label}
-              </Badge>
               <RecurringTag every={task.recurring} />
             </div>
             <h2 className="mt-2 text-lg leading-snug font-extrabold text-ink-900">{task.title}</h2>
@@ -321,6 +347,18 @@ function TaskDrawer({ task, onClose }: { task: Task; onClose: () => void }) {
       <div className="scroll-thin flex-1 overflow-y-auto">
         <dl className="grid grid-cols-2 gap-x-4 gap-y-4 px-5 py-4 text-sm">
           <div>
+            <dt className="mb-1 text-xs text-ink-500">Status</dt>
+            <dd className="flex h-8 items-center">
+              <StatusSelect label="Status" value={task.status} options={statuses} onChange={move} disabled={statuses.length < 2} />
+            </dd>
+          </div>
+          <div>
+            <dt className="mb-1 text-xs text-ink-500">Priority</dt>
+            <dd className="flex h-8 items-center">
+              <StatusSelect label="Priority" value={task.priority} options={options(PRIORITIES)} onChange={(priority) => updateTask(task.id, { priority })} disabled={!head} />
+            </dd>
+          </div>
+          <div>
             <dt className="mb-1 text-xs text-ink-500">Assigned to</dt>
             <dd className="flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1">
               <Person emp={emp(task.assigneeId)} />
@@ -346,12 +384,6 @@ function TaskDrawer({ task, onClose }: { task: Task; onClose: () => void }) {
               ) : (
                 <Due date={task.dueDate} done={task.status === 'completed'} />
               )}
-            </dd>
-          </div>
-          <div>
-            <dt className="mb-1 text-xs text-ink-500">Priority</dt>
-            <dd className="flex h-8 items-center">
-              <StatusSelect label="Priority" value={task.priority} options={options(PRIORITIES)} onChange={(priority) => updateTask(task.id, { priority })} disabled={!head} />
             </dd>
           </div>
         </dl>
@@ -507,6 +539,27 @@ export default function Tasks() {
   }, [tasks, clientName, mineOnly, me.id, dept, assignee, q, due])
 
   const count = (s: StatusTab) => base.filter((t) => inTab(t, s)).length
+
+  // Dragging a card between board columns. The card is kept here because a column can't read the drag's data until the drop.
+  const moveTask = useMoveTask()
+  const [dragged, setDragged] = useState<Task | null>(null)
+  const [over, setOver] = useState<TaskStatus | null>(null)
+  const who = (t: Task) => ({ head, mine: t.assigneeId === me.id })
+  const takes = (s: TaskStatus) => !!dragged && canMove(dragged, s, who(dragged))
+  const dragOver = (e: DragEvent, s: TaskStatus) => {
+    if (!takes(s)) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setOver(s)
+  }
+  const drop = (e: DragEvent, s: TaskStatus) => {
+    e.preventDefault()
+    // Read the task afresh: it may have changed on another device while it was being dragged.
+    const t = dragged && tasks.find((x) => x.id === dragged.id)
+    if (t && canMove(t, s, who(t))) moveTask(t, s)
+    setDragged(null)
+    setOver(null)
+  }
   const rows = useMemo(
     () =>
       base
@@ -677,7 +730,17 @@ export default function Tasks() {
             {TASK_STATUS_ORDER.map((s) => {
               const col = base.filter((t) => t.status === s).sort((a, b) => a.dueDate.localeCompare(b.dueDate))
               return (
-                <section key={s} className="flex w-[280px] shrink-0 flex-col rounded-xl bg-ink-100/60 p-2 xl:w-auto">
+                <section
+                  key={s}
+                  onDragOver={(e) => dragOver(e, s)}
+                  onDragLeave={() => setOver((o) => (o === s ? null : o))}
+                  onDrop={(e) => drop(e, s)}
+                  className={cn(
+                    'flex w-[280px] shrink-0 flex-col rounded-xl bg-ink-100/60 p-2 transition-colors xl:w-auto',
+                    over === s && takes(s) && 'bg-brand-50 ring-2 ring-brand-300',
+                    dragged && dragged.status !== s && !takes(s) && 'opacity-50',
+                  )}
+                >
                   <header className="flex items-center gap-2 px-2 pt-1 pb-2.5">
                     <span className={cn('size-2 rounded-full', TONE_BAR[TASK_STATUS[s].tone])} />
                     <h2 className="text-[13px] font-bold text-ink-800">{TASK_STATUS[s].label}</h2>
@@ -686,12 +749,33 @@ export default function Tasks() {
                   <div className="flex min-h-20 flex-col gap-2">
                     {col.map((t) => {
                       const a = emp(t.assigneeId)
+                      const movable = TASK_STATUS_ORDER.some((to) => canMove(t, to, who(t)))
                       return (
-                        <button
+                        // Not a <button>: Firefox won't start a drag from one.
+                        <article
                           key={t.id}
-                          type="button"
+                          role="button"
+                          tabIndex={0}
+                          draggable={movable}
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData('text/plain', t.title)
+                            e.dataTransfer.effectAllowed = 'move'
+                            setDragged(t)
+                          }}
+                          onDragEnd={() => {
+                            setDragged(null)
+                            setOver(null)
+                          }}
                           onClick={() => setParams({ open: t.id })}
-                          className="rounded-lg bg-white p-3 text-left shadow-card ring-1 ring-ink-200/80 transition-shadow hover:shadow-pop hover:ring-brand-300"
+                          onKeyDown={(e) => {
+                            if (e.key !== 'Enter' && e.key !== ' ') return
+                            e.preventDefault()
+                            setParams({ open: t.id })
+                          }}
+                          className={cn(
+                            'cursor-pointer rounded-lg bg-white p-3 text-left shadow-card ring-1 ring-ink-200/80 transition-shadow hover:shadow-pop hover:ring-brand-300 focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:outline-none',
+                            dragged?.id === t.id && 'opacity-50',
+                          )}
                         >
                           <div className="flex items-center justify-between gap-2">
                             <Badge tone={PRIORITIES[t.priority].tone}>{PRIORITIES[t.priority].label}</Badge>
@@ -706,10 +790,10 @@ export default function Tasks() {
                             <span className="tnum text-xs font-semibold text-ink-500">{t.progress}%</span>
                             {a && <Avatar name={a.name} hue={a.hue} photo={a?.photo} size={22} />}
                           </div>
-                        </button>
+                        </article>
                       )
                     })}
-                    {col.length === 0 && <p className="px-2 py-5 text-center text-xs text-ink-400">Nothing here</p>}
+                    {col.length === 0 && <p className="px-2 py-5 text-center text-xs text-ink-400">{takes(s) ? 'Drop it here' : 'Nothing here'}</p>}
                   </div>
                 </section>
               )
