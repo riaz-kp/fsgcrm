@@ -1,6 +1,8 @@
 import {
   AlarmClock,
   Bell,
+  BellOff,
+  BellRing,
   Building2,
   CalendarCheck,
   CalendarDays,
@@ -37,13 +39,14 @@ import {
   Users,
   X,
 } from 'lucide-react'
-import { Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { startDemoLog } from '../lib/changeLog'
 import { statutoryDeadlines } from '../lib/deadlines'
 import { dscsDue, looksAfterDscs } from '../lib/dsc'
 import { addDays, cn, daysUntil, fmtDate, fmtTime, relDue, todayISO } from '../lib/format'
 import { install, installsFromShareMenu, useInstall } from '../lib/install'
+import { disablePush, enablePush, testPush, usePushInApp, usePushState } from '../lib/push'
 import { setTheme, useTheme, type ThemePick } from '../lib/theme'
 import { useDismiss } from '../lib/useDismiss'
 import { DEPARTMENTS, ROLES } from '../lib/meta'
@@ -168,6 +171,69 @@ function ThemeItem() {
   )
 }
 
+/**
+ * Notifications on this device. Shown only in the live app. On an iPhone or iPad they need the app on the Home Screen
+ * first; elsewhere a blocked site can only be let through again from the browser's own settings.
+ */
+function NotificationsItem() {
+  const [state, refresh] = usePushState()
+  const [busy, setBusy] = useState<'' | 'on' | 'off' | 'test'>('')
+  const [note, setNote] = useState<{ text: string; bad?: boolean } | null>(null)
+  if (state === null || state === 'unsupported') return null
+
+  const run = async (what: 'on' | 'off' | 'test', task: () => Promise<void>, done: string) => {
+    setBusy(what)
+    setNote(null)
+    try {
+      await task()
+      setNote({ text: done })
+    } catch (e) {
+      setNote({ text: e instanceof Error ? e.message : String(e), bad: true })
+    } finally {
+      setBusy('')
+      refresh()
+    }
+  }
+
+  const small = 'rounded-md px-2 py-1 text-xs font-semibold text-ink-600 hover:bg-ink-100 disabled:opacity-60'
+  return (
+    <div className="border-t border-ink-100 px-3 py-2.5">
+      <div className="flex items-center gap-2">
+        {state === 'on' ? <BellRing size={14} className="text-brand-600" /> : state === 'off' ? <Bell size={14} className="text-ink-500" /> : <BellOff size={14} className="text-ink-400" />}
+        <p className="flex-1 text-[13px] font-semibold text-ink-600">Notifications</p>
+        {state === 'off' && (
+          <button
+            type="button"
+            disabled={busy !== ''}
+            onClick={() => void run('on', enablePush, 'On for this device.')}
+            className="rounded-md bg-brand-600 px-2 py-1 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
+          >
+            {busy === 'on' ? 'Turning on…' : 'Turn on'}
+          </button>
+        )}
+        {state === 'on' && (
+          <>
+            <button type="button" disabled={busy !== ''} onClick={() => void run('test', testPush, 'Sent. It should appear in a few seconds.')} className={small}>
+              {busy === 'test' ? 'Sending…' : 'Test'}
+            </button>
+            <button type="button" disabled={busy !== ''} onClick={() => void run('off', disablePush, 'Off for this device.')} className={small}>
+              {busy === 'off' ? '…' : 'Turn off'}
+            </button>
+          </>
+        )}
+      </div>
+      {state === 'install-first' && (
+        <p className="mt-1 text-xs leading-relaxed text-ink-500">
+          On iPhone and iPad, add the app to your Home Screen first (Share <Share size={11} className="inline align-[-1px]" /> → Add to Home Screen), then open it from there.
+        </p>
+      )}
+      {state === 'blocked' && <p className="mt-1 text-xs leading-relaxed text-ink-500">Blocked for this site. Allow notifications in the browser's site settings, then come back here.</p>}
+      {state === 'off' && !note && <p className="mt-1 text-xs leading-relaxed text-ink-500">Tasks given to you, reviews, remarks, and a 9 AM summary of what's due.</p>}
+      {note && <p className={cn('mt-1 text-xs leading-relaxed', note.bad ? 'text-rose-600' : 'text-ink-500')}>{note.text}</p>}
+    </div>
+  )
+}
+
 /** Live: who is signed in, their profile and signing out. */
 function AccountMenu({ onClose }: { onClose: () => void }) {
   const me = useCurrentUser()
@@ -191,6 +257,7 @@ function AccountMenu({ onClose }: { onClose: () => void }) {
         <UserRound size={14} /> My profile
       </button>
       <ThemeItem />
+      <NotificationsItem />
       <InstallItem onDone={onClose} />
       <button
         type="button"
@@ -608,6 +675,9 @@ export default function Layout() {
   }, [location.pathname])
   useTrackerRows()
   useEffect(startDemoLog, [])
+  const navigate = useNavigate()
+  const openFromNotification = useCallback((path: string) => navigate(path), [navigate])
+  usePushInApp(LIVE ? openFromNotification : null)
 
   return (
     <div data-rail={collapsed ? '' : undefined} className="min-h-dvh rail:pl-16 full:pl-56">

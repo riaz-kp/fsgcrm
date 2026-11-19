@@ -46,7 +46,9 @@ deployed there. For a new project:
    run `supabase db push`).
 2. Deploy the function: `supabase functions deploy staff-logins --no-verify-jwt` (it checks the
    caller itself).
-3. Give the first admin a login. Nobody can sign in yet to do it from the app, so in the SQL editor run
+3. Push notifications: follow `supabase/push-setup.md` (keys into Vault, deploy the `push`
+   function with `--no-verify-jwt`).
+4. Give the first admin a login. Nobody can sign in yet to do it from the app, so in the SQL editor run
    `select public.grant_login('e-admin', 'admin@fsg.local');` and, within two minutes, add a user in
    Authentication → Users with that email, a password and *Auto confirm* ticked. Then run
    `update public.employees set username = 'admin' where id = 'e-admin';`. The admin signs in as
@@ -186,7 +188,16 @@ the version they have; closing every window of the app also brings in the new on
 
 The service worker only runs in a build: try it with `npm run build` and `npm run preview`, not
 `npm run dev`. The setup is `VitePWA` in `vite.config.ts` (name, colours, which files are kept);
-the icons in `public/` are made from `logo-mark.jpeg`.
+the worker itself is `src/sw.ts` (its own `tsconfig.sw.json`); the icons in `public/` are made
+from `logo-mark.jpeg`, `badge-96x96.png` being the white outline Android shows in the status bar.
+
+### Notifications
+
+Each person turns notifications on per device from the account menu. Tasks given to them, reviews,
+remarks and a 9 AM summary reach the notification panel on Windows, macOS, Android, and iPhone/iPad
+once the app is on the Home Screen. The database decides what to send (triggers on `tasks`, a
+`pg_cron` job), and the `push` edge function sends it. What is sent and how to set it up:
+`supabase/push-setup.md`.
 
 ## Where things live
 
@@ -196,6 +207,7 @@ the icons in `public/` are made from `logo-mark.jpeg`.
 - `src/lib/files.ts` — client documents and call recordings in Storage
 - `src/components/AuthGate.tsx`, `src/pages/SignIn.tsx` — signing in with a username
 - `vite.config.ts` (`VitePWA`), `src/lib/install.ts`, `src/components/UpdatePrompt.tsx` — installing as an app, and the "new version" message
+- `src/sw.ts`, `src/lib/push.ts`, `supabase/functions/push/`, `…_push_notifications.sql` — push notifications
 - `src/pages/SettingsLogins.tsx`, `src/lib/logins.ts`, `supabase/functions/staff-logins/` — giving out logins
 - `src/data/seed.ts` — sample data, used only without a database. Staff names are real; every client and login is invented
 - `src/store.ts` — app state and actions

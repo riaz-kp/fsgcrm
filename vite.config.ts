@@ -21,9 +21,13 @@ export default defineConfig({
     // Installable on phones and computers. The service worker keeps the app's own files, so it opens at once and
     // without a connection; the firm's data, sign-in and client files on Supabase always come from the network.
     // A new version waits until the user chooses to reload (UpdatePrompt), so nobody loses something half typed.
+    // The worker is our own (src/sw.ts) so it can show push notifications; the plugin fills in the file list.
     VitePWA({
       registerType: 'prompt',
       injectRegister: false,
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
       includeAssets: ['logo.jpeg', 'logo-mark.jpeg'],
       manifest: {
         id: '/',
@@ -42,7 +46,7 @@ export default defineConfig({
           { src: 'maskable-icon-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
-      workbox: {
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,woff2}'],
         // jsPDF's extras for drawing HTML and SVG (html2canvas, DOMPurify, canvg). The requirements PDF uses neither,
         // so they are not downloaded onto every device in advance.

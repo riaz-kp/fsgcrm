@@ -25,3 +25,6 @@ dist-ssr
 
 # Local builds on sample data (VITE_DEMO=true)
 dist-demo
+
+# Push notification keys for the SQL editor (supabase/push-setup.md). Never commit.
+supabase/*.secret.sql

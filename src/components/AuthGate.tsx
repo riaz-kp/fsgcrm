@@ -2,6 +2,7 @@ import type { Session } from '@supabase/supabase-js'
 import { LogOut, RotateCcw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AccountContext, type Account } from '../lib/account'
+import { disablePush } from '../lib/push'
 import { LOGIN_DOMAIN } from '../lib/logins'
 import { MODE, supabase } from '../lib/supabase'
 import { startSync, stopSync, useSyncStatus } from '../lib/sync'
@@ -106,6 +107,8 @@ function LiveGate({ children }: { children: ReactNode }) {
     if (useSyncStatus.getState().saving && !window.confirm('Some changes are still being saved. Sign out anyway? Anything not saved yet will be lost.')) return
     setPhase({ at: 'leaving' })
     await stopSync()
+    // This device stops getting the person's notifications, in case someone else uses it next.
+    await disablePush().catch(() => undefined)
     await supabase!.auth.signOut()
   }, [])
 
