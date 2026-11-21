@@ -455,7 +455,7 @@ export default function Dashboard() {
           label={head ? 'Open tasks' : 'My open tasks'}
           value={scoped.length}
           tone="violet"
-          to={overdue > 0 ? '/tasks?due=late' : '/tasks'}
+          to={overdue > 0 ? '/tasks?due=late' : head ? '/tasks?who=all' : '/tasks'}
           sub={
             <>
               {overdue > 0 ? <span className="font-semibold text-rose-600">{overdue} overdue</span> : 'None overdue'}

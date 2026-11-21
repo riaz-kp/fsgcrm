@@ -511,7 +511,10 @@ export default function Tasks() {
   const nameOf = (t: Task) => (t.clientId && clientName.get(t.clientId)) || 'Internal'
   const [params, setParams] = useSearchParams()
   const preset = params.get('assignee') ?? ''
-  const [mineOnly, setMineOnly] = useState<'mine' | 'all'>('all')
+  // A head starts on their own tasks. Links that count or filter the whole team (dashboard tiles, a person's tasks) open on everyone, so the numbers match.
+  const [mineOnly, setMineOnly] = useState<'mine' | 'all'>(() =>
+    ['who', 'status', 'due', 'assignee', 'reassign'].some((k) => params.has(k)) && params.get('who') !== 'mine' ? 'all' : 'mine',
+  )
   // The dashboard links here with `?status=` (a status tab) and `?due=today` or `?due=late`.
   const [tab, setTab] = useState<StatusTab>(() => (['all', 'open', ...TASK_STATUS_ORDER] as StatusTab[]).find((s) => s === params.get('status')) ?? 'open')
   const [due, setDue] = useState<'today' | 'late' | ''>(() => (params.get('due') === 'today' || params.get('due') === 'late' ? (params.get('due') as 'today' | 'late') : ''))
