@@ -1,10 +1,10 @@
-import { Building2, Download, FileSpreadsheet, KeyRound, Link2, Plus, Search } from 'lucide-react'
+import { Building2, Link2, Plus, Search } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { PhoneLink, ScopeChips, WhatsAppLink } from '../components/bits'
 import ClientForm from '../components/ClientForm'
-import { Avatar, Badge, Button, Card, Empty, MenuButton, PageHeader, Segmented, Select, Td, Th } from '../components/ui'
-import { associatesOf, balanceOf, clientSheet, downloadSheets, loginSheet, useExportContext } from '../lib/exports'
+import { Avatar, Badge, Button, Card, Empty, PageHeader, Segmented, Select, Td, Th } from '../components/ui'
+import { associatesOf, balanceOf } from '../lib/exports'
 import { cn, inr } from '../lib/format'
 import { CATEGORIES, CATEGORY_TONE } from '../lib/meta'
 import { useStoredState } from '../lib/useStoredState'
@@ -81,8 +81,6 @@ export default function Clients() {
   }, [clients, q, category, scope, status, sort])
 
   const activeCount = clients.filter((c) => c.active).length
-  const x = useExportContext()
-  const withLogins = rows.filter((c) => c.credentials.length > 0)
 
   return (
     <>
@@ -90,31 +88,11 @@ export default function Clients() {
         title="Clients"
         subtitle={`${activeCount} active · ${clients.length - activeCount} inactive`}
         actions={
-          <>
-            <MenuButton
-              label="Export"
-              icon={<Download size={16} />}
-              items={[
-                {
-                  label: 'Client list',
-                  hint: `The ${rows.length} clients shown, with the filters and sort applied`,
-                  icon: <FileSpreadsheet size={15} />,
-                  onClick: () => downloadSheets('FSG clients', [clientSheet(x, rows)]),
-                },
-                can('view_logins') && {
-                  label: 'Portal logins',
-                  hint: `${withLogins.reduce((n, c) => n + c.credentials.length, 0)} logins of the clients shown, with passwords. Keep the file safe.`,
-                  icon: <KeyRound size={15} />,
-                  onClick: () => downloadSheets('FSG portal logins', [loginSheet(x, withLogins)]),
-                },
-              ]}
-            />
-            {can('edit_clients') && (
-              <Button variant="primary" icon={<Plus size={16} />} onClick={() => setParams({ new: '1' })}>
-                Add client
-              </Button>
-            )}
-          </>
+          can('edit_clients') && (
+            <Button variant="primary" icon={<Plus size={16} />} onClick={() => setParams({ new: '1' })}>
+              Add client
+            </Button>
+          )
         }
       />
 

@@ -7,6 +7,9 @@
 
 export const ALARM_OPTIONS: Array<{ value: number; label: string }> = [
   { value: 0, label: 'At the time' },
+  { value: 1, label: '1 minute before' },
+  { value: 2, label: '2 minutes before' },
+  { value: 3, label: '3 minutes before' },
   { value: 5, label: '5 minutes before' },
   { value: 10, label: '10 minutes before' },
   { value: 15, label: '15 minutes before' },
