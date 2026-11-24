@@ -6,7 +6,7 @@ import { Avatar, Badge, Button, Card, CardHeader, Empty, Progress, TONE_BAR } fr
 import { statutoryDeadlines } from '../lib/deadlines'
 import { addDays, cn, currentGstPeriod, daysUntil, fmtDate, fmtWeekday, fmtTime, greeting, inr, longToday, periodLabel, todayISO } from '../lib/format'
 import { DEPARTMENTS, LEAD_STATUS, LEAD_STATUS_ORDER, PRIORITIES, TASK_STATUS, TASK_STATUS_ORDER, TRACKERS } from '../lib/meta'
-import { birthdayOf, can, useCurrentUser, useDeadlineMoves, useLookup, useStore, useVisibleTasks } from '../store'
+import { birthdayOf, can, consultants, useCurrentUser, useMyConsultations, useDeadlineMoves, useLookup, useStore, useVisibleTasks } from '../store'
 import type { Task } from '../types'
 
 function GstProgress() {
@@ -214,9 +214,9 @@ function TodayTasks() {
   )
 }
 
-/** The CEO's consultation diary for today and tomorrow. */
+/** The consultations this person takes, today and tomorrow. */
 function ConsultationsToday() {
-  const consultations = useStore((s) => s.consultations)
+  const consultations = useMyConsultations()
   const list = consultations
     .filter((c) => c.status === 'scheduled' && daysUntil(c.date) >= 0 && daysUntil(c.date) <= 1)
     .sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`))
@@ -410,6 +410,9 @@ export default function Dashboard() {
   const clients = useStore((s) => s.clients)
   const tasks = useVisibleTasks()
   const leads = useStore((s) => s.leads)
+  const employees = useStore((s) => s.employees)
+  // Those who take consultations (the CEO and Praveen) see theirs for today and tomorrow.
+  const myConsults = can(me, 'consultations') && consultants(employees).some((e) => e.id === me.id)
 
   const active = clients.filter((c) => c.active).length
   const scoped = tasks.filter((t) => t.status !== 'completed')
@@ -488,7 +491,7 @@ export default function Dashboard() {
           <GstProgress />
         </div>
         <div className="space-y-4">
-          {me.role === 'ceo' && <ConsultationsToday />}
+          {myConsults && <ConsultationsToday />}
           <Deadlines />
           {head && <Workload />}
           <LeadPipeline />

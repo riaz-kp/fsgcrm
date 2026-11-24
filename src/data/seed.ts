@@ -902,7 +902,9 @@ function consultations(cs: Client[], today: string): Consultation[] {
     { withName: 'Bright Future Educational Trust', clientId: id('Bright Future'), date: d(3), time: '14:00', durationMin: 60, topic: '12A / 80G renewal and internal audit scope', mode: 'In person', status: 'scheduled', notes: '' },
     { withName: 'Dr. Anjali Menon', clientId: id('Dr. Anjali'), date: d(6), time: '17:30', durationMin: 30, topic: 'Tax planning before year end', mode: 'Phone', status: 'scheduled', notes: '' },
   ]
-  return rows.map((r, i) => ({ id: `k-${i + 1}`, ...r }))
+  // Vijeesh takes them all; Praveen sits in on the two about audits and project reports.
+  const both = new Set([1, 4])
+  return rows.map((r, i) => ({ id: `k-${i + 1}`, ...r, attendees: both.has(i) ? [E.vijeesh, E.praveen] : [E.vijeesh], alarm: r.status === 'scheduled' ? 15 : undefined }))
 }
 
 function reminders(cs: Client[], today: string): Reminder[] {
@@ -912,7 +914,7 @@ function reminders(cs: Client[], today: string): Reminder[] {
     // PF and ESI have no statutory dates in the app; the firm keeps them as reminders.
     { id: 'm-1', title: 'PF & ESI contribution due', note: 'Challans for every client with PF or ESI in scope.', date: `${shiftPeriod(month, -2)}-15`, repeat: 'monthly', notifyDays: 3, createdBy: E.praveen, done: [`${shiftPeriod(month, -2)}-15`, `${shiftPeriod(month, -1)}-15`] },
     { id: 'm-2', title: 'Advance tax instalment', note: 'Remind audit-case clients a week ahead.', date: `${today.slice(0, 4)}-12-15`, repeat: 'none', notifyDays: 10, forId: E.vijeesh, createdBy: E.vijeesh, done: [] },
-    { id: 'm-3', title: 'Collect export refund papers', date: addDays(today, 2), repeat: 'none', notifyDays: 2, forId: E.anna, clientId: id('Kadalundi'), createdBy: E.praveen, done: [] },
+    { id: 'm-3', title: 'Collect export refund papers', date: addDays(today, 2), time: '11:30', alarm: 10, repeat: 'none', notifyDays: 2, forId: E.anna, clientId: id('Kadalundi'), createdBy: E.praveen, done: [] },
     { id: 'm-4', title: 'Renew office DSC token stock', date: addDays(today, 12), repeat: 'none', notifyDays: 5, forId: E.afna, createdBy: E.anna, done: [] },
   ]
 }

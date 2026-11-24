@@ -72,13 +72,38 @@ async function save(sub: PushSubscription) {
   if (error) throw new Error(error.message)
 }
 
+function installed(): boolean {
+  return (navigator as Navigator & { standalone?: boolean }).standalone === true || matchMedia('(display-mode: standalone)').matches
+}
+
+/**
+ * Where to let this site send notifications, for the browser and device in hand. Browsers often answer a request
+ * without asking: Edge (by default) and Chrome (after a few "no"s) show only a small bell or crossed-out icon in the
+ * address bar, and a site that was blocked once is never asked again.
+ */
+export function allowHelp(): string {
+  const ua = navigator.userAgent
+  const apple = /iPhone|iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
+  if (apple) return 'Open the iPhone/iPad Settings → Notifications → FSG, and turn on Allow Notifications.'
+  if (/Android/.test(ua))
+    return installed()
+      ? 'Press and hold the FSG app icon → App info → Notifications, and allow them.'
+      : 'Tap ⋮ → Settings → Site settings → Notifications, and allow this site. Or tap the icon left of the address.'
+  if (installed()) return 'Click the ⋮ menu at the top of the app window → App info (or Site settings) → Notifications → Allow.'
+  if (/Edg\//.test(ua)) return 'Click the bell (or the lock) in the address bar → Notifications → Allow.'
+  if (/Firefox\//.test(ua)) return 'Click the icon left of the address → clear "Blocked" next to notifications, or allow them.'
+  if (/Safari\//.test(ua) && !/Chrome\//.test(ua)) return 'Safari menu → Settings → Websites → Notifications, and set this site to Allow.'
+  return 'Click the icon left of the address (a lock or two sliders) → turn Notifications on. If you see a crossed-out bell in the address bar, click it and choose Allow.'
+}
+
 /** Asks for permission (must run straight from a tap) and turns notifications on for this device. */
 export async function enablePush(): Promise<void> {
   if (!supabase) throw new Error('Notifications work in the live app only.')
-  const permission = await Notification.requestPermission()
-  if (permission !== 'granted') throw new Error(permission === 'denied' ? 'Notifications are blocked for this site.' : 'Notifications were not allowed.')
+  const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission()
+  if (permission === 'denied') throw new Error(`Notifications are blocked for this site. ${allowHelp()} Then tap Turn on again.`)
+  if (permission !== 'granted') throw new Error(`Your browser did not allow it. If no box appeared, it was held back: ${allowHelp()} Then tap Turn on again.`)
   const reg = await registration()
-  if (!reg) throw new Error('The app is still getting ready on this device. Try again in a moment.')
+  if (!reg) throw new Error('The app is still getting ready on this device. Reload the page, then try again.')
   const { data: key, error } = await supabase.rpc('push_public_key')
   if (error) throw new Error(error.message)
   if (typeof key !== 'string' || !key) throw new Error('Notifications are not set up on the server yet.')
@@ -89,7 +114,19 @@ export async function enablePush(): Promise<void> {
     await sub.unsubscribe()
     sub = null
   }
-  sub ??= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToBytes(key) })
+  if (!sub) {
+    try {
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToBytes(key) })
+    } catch (e) {
+      // Brave turns off the push service unless asked; some privacy settings and extensions do the same.
+      const brave = 'brave' in navigator
+      throw new Error(
+        brave
+          ? 'Brave blocks this by default: open brave://settings/privacy, turn on "Use Google services for push messaging", restart Brave and try again.'
+          : `This browser could not register for notifications (${e instanceof Error ? e.message : String(e)}). Try Chrome or Edge, or the installed app.`,
+      )
+    }
+  }
   await save(sub)
 }
 

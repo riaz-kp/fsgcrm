@@ -34,16 +34,18 @@ self.addEventListener('push', (event) => {
   } catch {
     msg = { body: event.data?.text() }
   }
+  // An alarm (a reminder or consultation coming up) stays on screen until it is dealt with, and buzzes a phone.
+  const alarm = msg.tag?.startsWith('alarm-') ?? false
+  const options: NotificationOptions & { renotify?: boolean; requireInteraction?: boolean; vibrate?: number[] } = {
+    body: msg.body ?? '',
+    icon: '/pwa-192x192.png',
+    badge: '/badge-96x96.png',
+    tag: msg.tag,
+    data: { url: msg.url || '/' },
+    ...(alarm && { requireInteraction: true, renotify: true, vibrate: [300, 150, 300, 150, 600] }),
+  }
   // Every push must show a notification: Safari and Chrome stop delivering to apps that receive pushes silently.
-  event.waitUntil(
-    self.registration.showNotification(msg.title || 'Practice Manager', {
-      body: msg.body ?? '',
-      icon: '/pwa-192x192.png',
-      badge: '/badge-96x96.png',
-      tag: msg.tag,
-      data: { url: msg.url || '/' },
-    }),
-  )
+  event.waitUntil(self.registration.showNotification(msg.title || 'Practice Manager', options))
 })
 
 // Tapping a notification opens its page: in the app window already open if there is one (the app moves there itself,

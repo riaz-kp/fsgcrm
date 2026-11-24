@@ -519,6 +519,34 @@ export function useTemplate(key: TemplateKey): string {
   return useStore((s) => s.templates[key]) ?? TEMPLATES[key].text
 }
 
+/* ---------- Consultations ---------- */
+
+/** Who from the firm takes a consultation. Older ones, saved before people could be picked, are the CEO's. */
+export function consultationPeople(c: Consultation, employees: Employee[]): string[] {
+  if (c.attendees?.length) return c.attendees
+  const ceo = employees.find((e) => e.role === 'ceo')
+  return ceo ? [ceo.id] : []
+}
+
+/**
+ * The people who can be picked to take a consultation: the CEO and the heads who report straight to the CEO
+ * (Vijeesh and Praveen), plus anyone in `keep` (already on one), so a list still shows them.
+ */
+export function consultants(employees: Employee[], keep: string[] = []): Employee[] {
+  const ceo = employees.find((e) => e.role === 'ceo' && e.active)
+  return employees
+    .filter((e) => keep.includes(e.id) || (e.active && (e.role === 'ceo' || (e.role === 'head' && !!ceo && e.reportsTo === ceo.id))))
+    .sort((a, b) => Number(b.role === 'ceo') - Number(a.role === 'ceo') || a.name.localeCompare(b.name))
+}
+
+/** The consultations a person takes. */
+export function useMyConsultations(): Consultation[] {
+  const me = useCurrentUser()
+  const consultations = useStore((s) => s.consultations)
+  const employees = useStore((s) => s.employees)
+  return useMemo(() => consultations.filter((c) => consultationPeople(c, employees).includes(me.id)), [consultations, employees, me])
+}
+
 /* ---------- Reminders ---------- */
 
 export interface Occurrence {

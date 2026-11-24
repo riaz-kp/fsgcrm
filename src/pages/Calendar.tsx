@@ -1,12 +1,13 @@
-import { AlarmClock, CalendarDays, Check, ChevronLeft, ChevronRight, Pencil, Plus, Repeat, Trash2 } from 'lucide-react'
+import { AlarmClock, CalendarDays, Check, ChevronLeft, ChevronRight, Pencil, Plus, Repeat, Trash2, X } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Badge, Button, Card, CardHeader, Empty, Field, IconButton, Input, Modal, PageHeader, Select, Textarea, TONE_BAR } from '../components/ui'
+import { ALARM_OPTIONS, alarmLabel, askToNotify } from '../lib/alarms'
 import { statutoryDeadlines } from '../lib/deadlines'
 import { addDays, cn, daysUntil, fmtDate, fmtTime, parseISO, periodLabel, relDue, shiftPeriod, toISO, todayISO } from '../lib/format'
 import { DEPARTMENTS, type Tone } from '../lib/meta'
 import { useStoredState } from '../lib/useStoredState'
-import { can, pickable, useCurrentUser, useDeadlineMoves, useReminderOccurrences, useStore } from '../store'
+import { can, consultationPeople, pickable, useCurrentUser, useDeadlineMoves, useReminderOccurrences, useStore } from '../store'
 import type { Department, Reminder, ReminderRepeat } from '../types'
 
 const KINDS = ['Statutory', 'Staff cut-off', 'Task', 'Follow-up', 'Committed', 'Consultation', 'Reminder', 'DSC'] as const
@@ -48,6 +49,8 @@ interface CalEvent {
   dept?: Department
   /** Set for a reminder: which one, and whether this date of it has been ticked off. */
   reminder?: { r: Reminder; done: boolean }
+  /** HH:MM, for things at a set time, which sort by it within the day. */
+  time?: string
   /** Set for a statutory date, so a reminder can be made from it. */
   statutory?: { title: string; detail: string }
 }
@@ -123,19 +126,19 @@ function useEvents(from: string, to: string): CalEvent[] {
       if (s.status === 'completed' || !within(s.committedDate) || !(head || s.assigneeId === me.id)) continue
       out.push({ id: s.id, date: s.committedDate, title: s.kind, sub: `Committed to ${s.party}`, tone: 'green', kind: 'Committed', to: '/filings/services', dept: 'registration' })
     }
-    if (me.role === 'ceo')
-      for (const c of consultations) {
-        if (c.status !== 'scheduled' || !within(c.date)) continue
-        out.push({ id: c.id, date: c.date, title: `${fmtTime(c.time)} ${c.withName}`, sub: c.topic, tone: 'violet', kind: 'Consultation', to: '/consultations' })
-      }
+    for (const c of consultations) {
+      if (c.status !== 'scheduled' || !within(c.date) || !consultationPeople(c, employees).includes(me.id)) continue
+      out.push({ id: c.id, date: c.date, title: `${fmtTime(c.time)} ${c.withName}`, sub: c.topic, tone: 'violet', kind: 'Consultation', to: '/consultations', time: c.time })
+    }
     for (const o of reminders) {
       const r = o.reminder
       const who = r.forId ? (r.forId === me.id ? 'For you' : `For ${employees.find((e) => e.id === r.forId)?.name ?? 'someone'}`) : 'For everyone'
       out.push({
         id: `${r.id}-${o.date}`,
         date: o.date,
-        title: r.title,
-        sub: [r.clientId && names.get(r.clientId), r.note, who].filter(Boolean).join(' · '),
+        title: r.time ? `${fmtTime(r.time)} ${r.title}` : r.title,
+        sub: [r.clientId && names.get(r.clientId), r.note, who, r.time && r.alarm !== undefined && `Alarm ${alarmLabel(r.alarm).toLowerCase()}`].filter(Boolean).join(' · '),
+        time: r.time,
         tone: 'teal',
         kind: 'Reminder',
         to: r.clientId ? `/clients/${r.clientId}` : `/calendar?date=${o.date}`,
@@ -149,7 +152,7 @@ function useEvents(from: string, to: string): CalEvent[] {
         out.push({ id: `dsc-${d.id}`, date: d.expiry, title: `DSC expires · ${d.holder}`, sub: c.name, tone: 'red', kind: 'DSC', to: `/clients/${c.id}?tab=dsc` })
       }
     }
-    return out.sort((a, b) => a.date.localeCompare(b.date))
+    return out.sort((a, b) => a.date.localeCompare(b.date) || (a.time ?? '99').localeCompare(b.time ?? '99'))
   }, [me, clients, tasks, leads, services, consultations, reminders, employees, from, to, moves])
 }
 
@@ -186,6 +189,8 @@ function ReminderForm({ reminder, draft, onClose }: { reminder?: Reminder; draft
     date: start.date ?? addDays(todayISO(), 1),
     repeat: start.repeat ?? ('none' as ReminderRepeat),
     notifyDays: start.notifyDays ?? 1,
+    time: start.time ?? '',
+    alarm: start.alarm === undefined ? '' : String(start.alarm),
     // A new reminder is the creator's own unless they choose otherwise.
     forId: reminder ? (reminder.forId ?? '') : (start.forId ?? me.id),
     clientId: start.clientId ?? '',
@@ -203,11 +208,15 @@ function ReminderForm({ reminder, draft, onClose }: { reminder?: Reminder; draft
       date: f.date,
       repeat: f.repeat,
       notifyDays: f.notifyDays,
+      time: f.time || undefined,
+      alarm: f.time && f.alarm !== '' ? Number(f.alarm) : undefined,
       forId: f.forId || undefined,
       clientId: f.clientId || undefined,
     }
     if (reminder) updateReminder(reminder.id, data)
     else addReminder(data)
+    // An alarm also shows as a system notification when the app is in the background, which needs permission.
+    if (data.alarm !== undefined) askToNotify()
     onClose()
   }
 
@@ -246,6 +255,26 @@ function ReminderForm({ reminder, draft, onClose }: { reminder?: Reminder; draft
         </Field>
         <Field label="Date">
           <Input type="date" value={f.date} onChange={(e) => set('date', e.target.value)} />
+        </Field>
+        <Field label="Time" hint="optional">
+          <div className="flex gap-2">
+            <Input type="time" value={f.time} onChange={(e) => setF((p) => ({ ...p, time: e.target.value, alarm: e.target.value && p.alarm === '' && !p.time ? '10' : p.alarm }))} step={300} />
+            {f.time && (
+              <IconButton label="No set time" onClick={() => setF((p) => ({ ...p, time: '', alarm: '' }))}>
+                <X size={16} />
+              </IconButton>
+            )}
+          </div>
+        </Field>
+        <Field label="Alarm" hint={f.time ? 'popup, sound and notification' : 'pick a time first'}>
+          <Select value={f.alarm} onChange={(e) => set('alarm', e.target.value)} disabled={!f.time}>
+            <option value="">No alarm</option>
+            {ALARM_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
         </Field>
         <Field label="Repeats">
           <Select value={f.repeat} onChange={(e) => set('repeat', e.target.value as ReminderRepeat)}>

@@ -37,25 +37,29 @@ import {
   UserPlus,
   UserRound,
   Users,
+  Volume2,
+  VolumeX,
   X,
 } from 'lucide-react'
 import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { startDemoLog } from '../lib/changeLog'
 import { statutoryDeadlines } from '../lib/deadlines'
+import { chime, setSoundOn, soundOn } from '../lib/alarms'
 import { dscsDue, looksAfterDscs } from '../lib/dsc'
 import { addDays, cn, daysUntil, fmtDate, fmtTime, relDue, todayISO } from '../lib/format'
 import { install, installsFromShareMenu, useInstall } from '../lib/install'
-import { disablePush, enablePush, testPush, usePushInApp, usePushState } from '../lib/push'
+import { allowHelp, disablePush, enablePush, testPush, usePushInApp, usePushState } from '../lib/push'
 import { setTheme, useTheme, type ThemePick } from '../lib/theme'
 import { useDismiss } from '../lib/useDismiss'
 import { DEPARTMENTS, ROLES } from '../lib/meta'
 import { LIVE } from '../lib/supabase'
 import { dismissSyncError, useSyncStatus } from '../lib/sync'
 import { useTrackerRows } from '../lib/useTrackerRows'
-import { birthdayOf, can, useCan, useCurrentUser, useDeadlineMoves, useDueReminders, useLookup, useStore, useVisibleTasks } from '../store'
+import { birthdayOf, can, consultationPeople, useCan, useMyConsultations, useCurrentUser, useDeadlineMoves, useDueReminders, useLookup, useStore, useVisibleTasks } from '../store'
 import { useAccount } from '../lib/account'
-import { Avatar, Badge, Button, IconButton } from './ui'
+import Alarms from './Alarms'
+import { Avatar, Badge, Button, IconButton, Switch } from './ui'
 
 /**
  * The sidebar has three shapes: a slide-in drawer below `lg`, a narrow rail of icons from `lg` to `xl`
@@ -171,6 +175,33 @@ function ThemeItem() {
   )
 }
 
+/** Whether alarms make a sound on this device, with a button to hear it. */
+function AlarmSoundItem() {
+  const [on, setOn] = useState(soundOn)
+  return (
+    <div className="flex items-center gap-2 border-t border-ink-100 px-3 py-2.5">
+      {on ? <Volume2 size={14} className="text-ink-500" /> : <VolumeX size={14} className="text-ink-400" />}
+      <span className="flex-1 text-[13px] font-semibold text-ink-600">Alarm sound</span>
+      {on && (
+        <button type="button" onClick={chime} className="h-7 rounded-md px-2 text-xs font-semibold text-brand-700 ring-1 ring-ink-200 ring-inset hover:bg-ink-50">
+          Test
+        </button>
+      )}
+      <Switch
+        checked={on}
+        label="Alarm sound"
+        onChange={(v) => {
+          setSoundOn(v)
+          setOn(v)
+        }}
+      />
+    </div>
+  )
+}
+
+const TEST_SENT =
+  'Sent. It should appear within a few seconds. If it does not, the device may be keeping this browser quiet: check Do Not Disturb or Focus, and that the system lets the browser show notifications (Windows: Settings → System → Notifications; Mac: System Settings → Notifications).'
+
 /**
  * Notifications on this device. Shown only in the live app. On an iPhone or iPad they need the app on the Home Screen
  * first; elsewhere a blocked site can only be let through again from the browser's own settings.
@@ -184,12 +215,15 @@ function NotificationsItem() {
   const run = async (what: 'on' | 'off' | 'test', task: () => Promise<void>, done: string) => {
     setBusy(what)
     setNote(null)
+    // A request the browser holds back (a bell in the address bar instead of a box) waits silently; say where it is.
+    const hint = what === 'on' ? window.setTimeout(() => setNote({ text: `Waiting for your browser. If no box appeared: ${allowHelp()}` }), 2500) : 0
     try {
       await task()
       setNote({ text: done })
     } catch (e) {
       setNote({ text: e instanceof Error ? e.message : String(e), bad: true })
     } finally {
+      window.clearTimeout(hint)
       setBusy('')
       refresh()
     }
@@ -211,9 +245,14 @@ function NotificationsItem() {
             {busy === 'on' ? 'Turning on…' : 'Turn on'}
           </button>
         )}
+        {state === 'blocked' && (
+          <button type="button" onClick={refresh} className={small}>
+            Check again
+          </button>
+        )}
         {state === 'on' && (
           <>
-            <button type="button" disabled={busy !== ''} onClick={() => void run('test', testPush, 'Sent. It should appear in a few seconds.')} className={small}>
+            <button type="button" disabled={busy !== ''} onClick={() => void run('test', testPush, TEST_SENT)} className={small}>
               {busy === 'test' ? 'Sending…' : 'Test'}
             </button>
             <button type="button" disabled={busy !== ''} onClick={() => void run('off', disablePush, 'Off for this device.')} className={small}>
@@ -227,7 +266,7 @@ function NotificationsItem() {
           On iPhone and iPad, add the app to your Home Screen first (Share <Share size={11} className="inline align-[-1px]" /> → Add to Home Screen), then open it from there.
         </p>
       )}
-      {state === 'blocked' && <p className="mt-1 text-xs leading-relaxed text-ink-500">Blocked for this site. Allow notifications in the browser's site settings, then come back here.</p>}
+      {state === 'blocked' && !note && <p className="mt-1 text-xs leading-relaxed text-ink-500">Blocked for this site. {allowHelp()} Then press Check again.</p>}
       {state === 'off' && !note && <p className="mt-1 text-xs leading-relaxed text-ink-500">Tasks given to you, reviews, remarks, and a 9 AM summary of what's due.</p>}
       {note && <p className={cn('mt-1 text-xs leading-relaxed', note.bad ? 'text-rose-600' : 'text-ink-500')}>{note.text}</p>}
     </div>
@@ -258,6 +297,7 @@ function AccountMenu({ onClose }: { onClose: () => void }) {
       </button>
       <ThemeItem />
       <NotificationsItem />
+      <AlarmSoundItem />
       <InstallItem onDone={onClose} />
       <button
         type="button"
@@ -313,6 +353,7 @@ function UserSwitcher() {
             ))}
           </ul>
           <ThemeItem />
+          <AlarmSoundItem />
           <InstallItem onDone={() => setOpen(false)} />
           <button
             type="button"
@@ -451,18 +492,17 @@ function Reminders() {
       out.push({
         key: `m-${r.id}-${o.date}`,
         title: r.title,
-        sub: ['Reminder', relDue(o.date), client(r.clientId)?.name].filter(Boolean).join(' · '),
-        when: o.date,
+        sub: ['Reminder', relDue(o.date) + (r.time ? `, ${fmtTime(r.time)}` : ''), client(r.clientId)?.name].filter(Boolean).join(' · '),
+        when: r.time ? `${o.date} ${r.time}` : o.date,
         urgent: o.date < today,
         to: `/calendar?date=${o.date}`,
         done: () => toggleReminderDone(r.id, o.date),
       })
     }
 
-    // The CEO's consultation diary: today's and tomorrow's appointments.
-    if (me.role === 'ceo')
-      for (const c of consultations) {
-        if (c.status !== 'scheduled' || daysUntil(c.date) < 0 || daysUntil(c.date) > 1) continue
+    // Consultations this person takes: today's and tomorrow's.
+    for (const c of consultations) {
+        if (c.status !== 'scheduled' || daysUntil(c.date) < 0 || daysUntil(c.date) > 1 || !consultationPeople(c, employees).includes(me.id)) continue
         out.push({
           key: c.id,
           title: `${fmtTime(c.time)} · ${c.withName}`,
@@ -663,7 +703,7 @@ export default function Layout() {
   const allowed = useCan()
   const tasks = useVisibleTasks()
   const leads = useStore((s) => s.leads)
-  const consultations = useStore((s) => s.consultations)
+  const consultations = useMyConsultations()
 
   const openTasks = tasks.filter((t) => t.status !== 'completed').length
   const consultsToday = consultations.filter((c) => c.status === 'scheduled' && c.date === todayISO()).length
@@ -757,6 +797,7 @@ export default function Layout() {
           <Outlet key={me.id} />
         </Suspense>
       </main>
+      <Alarms key={me.id} />
     </div>
   )
 }

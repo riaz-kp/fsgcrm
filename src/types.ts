@@ -395,6 +395,10 @@ export interface Consultation {
   notes: string
   /** Earlier slots, oldest first, each with the day it was moved and why. */
   postponed?: Postponement[]
+  /** Who from the firm takes it (employee ids). Unset on older ones, which are the CEO's. */
+  attendees?: string[]
+  /** Minutes before the start to ring an alarm (popup, sound and notification); unset for none. */
+  alarm?: number
 }
 
 export interface Postponement {
@@ -418,6 +422,10 @@ export interface Reminder {
   repeat: ReminderRepeat
   /** How many days ahead it starts showing under the bell. */
   notifyDays: number
+  /** The time of day (HH:MM, 24h), if it is at a set time. */
+  time?: string
+  /** Minutes before the time to ring an alarm (popup, sound and notification); unset for none. Needs a time. */
+  alarm?: number
   /** Whose reminder it is; unset means everyone's. */
   forId?: string
   clientId?: string
