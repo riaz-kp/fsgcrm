@@ -7,7 +7,7 @@ import { statutoryDeadlines } from '../lib/deadlines'
 import { addDays, cn, daysUntil, fmtDate, fmtTime, parseISO, periodLabel, relDue, shiftPeriod, toISO, todayISO } from '../lib/format'
 import { DEPARTMENTS, type Tone } from '../lib/meta'
 import { useStoredState } from '../lib/useStoredState'
-import { can, consultationPeople, pickable, useCurrentUser, useDeadlineMoves, useReminderOccurrences, useStore } from '../store'
+import { can, consultants, consultationPeople, pickable, useCurrentUser, useDeadlineMoves, useReminderOccurrences, useStore } from '../store'
 import type { Department, Reminder, ReminderRepeat } from '../types'
 
 const KINDS = ['Statutory', 'Staff cut-off', 'Task', 'Follow-up', 'Committed', 'Consultation', 'Reminder', 'DSC'] as const
@@ -392,6 +392,7 @@ function FilterChip({ on, tone, label, count, onClick }: { on: boolean; tone: To
 export default function Calendar() {
   const today = todayISO()
   const me = useCurrentUser()
+  const employees = useStore((s) => s.employees)
   const toggleReminderDone = useStore((s) => s.toggleReminderDone)
   const [params, setParams] = useSearchParams()
   const linked = params.get('date')
@@ -418,7 +419,9 @@ export default function Calendar() {
     return Array.from({ length: 42 }, (_, i) => addDays(begin, i))
   }, [month])
 
-  const kinds = KINDS.filter((k) => k !== 'Consultation' || me.role === 'ceo')
+  // The Consultations checkmark is for those who take consultations (Vijeesh and Praveen).
+  const takesConsultations = consultants(employees).some((e) => e.id === me.id)
+  const kinds = KINDS.filter((k) => k !== 'Consultation' || takesConsultations)
   const visible = (e: CalEvent) => !filters.hiddenKinds.includes(e.kind) && !(e.dept && filters.hiddenDepts.includes(e.dept))
 
   const all = useEvents(days[0], days[41])
