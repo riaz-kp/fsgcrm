@@ -3,7 +3,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { attendanceTotals, minutesLate, monthDays, offDayName, timing, toHHMM, workingDays, workingHours } from '../lib/attendance'
 import { cn, fmtDate, fmtDuration, fmtTime, fmtWeekday, minutesBetween, periodLabel, shiftPeriod, todayISO } from '../lib/format'
 import { ATTENDANCE, ATTENDANCE_ORDER, type Tone } from '../lib/meta'
-import { useStore } from '../store'
+import { canEditAttendanceOn, useCurrentUser, useStore } from '../store'
 import type { AttendanceEntry, AttendanceMark, Employee } from '../types'
 import { Badge, Card, CardHeader, Empty, IconButton, StatusSelect, Td, Th } from './ui'
 
@@ -118,8 +118,13 @@ function Tile({ label, value, sub, tone }: { label: string; value: ReactNode; su
   )
 }
 
-/** One person's attendance: the month's totals, each day with its timings, every month on record and the days off. */
+/**
+ * One person's attendance: the month's totals, each day with its timings, every month on record and the days off.
+ * `canEdit` is for whoever keeps attendance; even then only today changes, unless the CEO is looking.
+ */
 export function AttendancePanel({ emp, canEdit }: { emp: Employee; canEdit: boolean }) {
+  const me = useCurrentUser()
+  const ceo = me.role === 'ceo'
   const entries = useStore((s) => s.attendance[emp.id])
   const offDays = useStore((s) => s.offDays)
   const setAttendance = useStore((s) => s.setAttendance)
@@ -192,7 +197,16 @@ export function AttendancePanel({ emp, canEdit }: { emp: Employee; canEdit: bool
 
       <div className="grid gap-4 lg:grid-cols-5">
         <Card className="lg:col-span-3 lg:self-start">
-          <CardHeader title="Day by day" hint={canEdit ? 'Change a status, a time or overtime and it is saved' : 'Marked by your heads'} />
+          <CardHeader
+            title="Day by day"
+            hint={
+              !canEdit
+                ? 'Marked by your heads'
+                : ceo
+                  ? 'Change a status, a time or overtime on any day and it is saved'
+                  : 'Today can be changed and is saved as you go; past days are corrected by the CEO'
+            }
+          />
           <div className="@container overflow-x-auto">
             <table className="stack w-full min-w-[700px] text-sm">
               <thead className="border-y border-ink-100 bg-ink-50/60">
@@ -210,6 +224,7 @@ export function AttendancePanel({ emp, canEdit }: { emp: Employee; canEdit: bool
                 {[...days].reverse().map((d) => {
                   const entry = entries?.[d.date]
                   const away = !entry || entry.mark === 'L'
+                  const edit = canEdit && canEditAttendanceOn(me, d.date)
                   const minutes = minutesBetween(entry?.in, entry?.out)
                   const dateCell = (
                     <Td className="tnum whitespace-nowrap">
@@ -218,7 +233,7 @@ export function AttendancePanel({ emp, canEdit }: { emp: Employee; canEdit: bool
                       {d.off && !d.sunday && <span className="block text-xs font-normal text-ink-400">{d.off}</span>}
                     </Td>
                   )
-                  if (d.off && !entry && !canEdit)
+                  if (d.off && !entry && !edit)
                     return (
                       <tr key={d.date} className="bg-ink-50/50 text-ink-400">
                         {dateCell}
@@ -231,7 +246,7 @@ export function AttendancePanel({ emp, canEdit }: { emp: Employee; canEdit: bool
                     <tr key={d.date} className={cn(d.date === today && 'bg-brand-50/50', d.off && 'bg-ink-50/50')}>
                       {dateCell}
                       <Td label="Status">
-                        {canEdit ? (
+                        {edit ? (
                           <StatusSelect
                             label={`Attendance on ${d.date}`}
                             value={entry?.mark ?? ''}
@@ -245,7 +260,7 @@ export function AttendancePanel({ emp, canEdit }: { emp: Employee; canEdit: bool
                         )}
                         {d.off && entry && entry.mark !== 'L' && <span className="mt-0.5 block text-xs font-semibold text-brand-700">on an off day</span>}
                       </Td>
-                      {canEdit ? (
+                      {edit ? (
                         <>
                           <Td label="Time in">
                             <TimeInput label={`Time in on ${d.date}`} value={entry?.in} disabled={entry?.mark === 'L'} onChange={(v) => setAttendanceTime(emp.id, d.date, { in: v })} />

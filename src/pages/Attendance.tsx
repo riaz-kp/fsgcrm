@@ -6,7 +6,7 @@ import { Avatar, Button, Card, CardHeader, Empty, Field, Input, Modal, PageHeade
 import { MARK_CELL, attendanceTotals, fmtOt, monthDays, offDayName, timing, workingDays, workingHours } from '../lib/attendance'
 import { cn, fmtDate, fmtDuration, fmtWeekday, nowHHMM, todayISO } from '../lib/format'
 import { ATTENDANCE, ATTENDANCE_ORDER } from '../lib/meta'
-import { can, useCurrentUser, useStore } from '../store'
+import { can, canEditAttendanceOn, useCurrentUser, useStore } from '../store'
 import type { AttendanceMark } from '../types'
 
 /** A working day steps through Present, Half day, Leave and blank; a day off for everyone through Present, Half day and blank. */
@@ -86,6 +86,8 @@ const FIELD_LABEL = 'text-[11px] font-bold tracking-wide text-ink-400 uppercase'
 export default function AttendancePage() {
   const me = useCurrentUser()
   const head = can(me, 'manage_attendance')
+  // Today is open to whoever keeps attendance; earlier days only to the CEO.
+  const editable = (date: string) => canEditAttendanceOn(me, date)
   const employees = useStore((s) => s.employees)
   const attendance = useStore((s) => s.attendance)
   const offDays = useStore((s) => s.offDays)
@@ -258,7 +260,7 @@ export default function AttendancePage() {
                   return (
                     <th key={d.date} className={cn('px-px py-1 text-center', d.date === today ? 'bg-brand-50' : d.off ? 'bg-ink-100' : 'bg-ink-50')}>
                       {/* Sundays are always off; any other day can be made off for everyone. */}
-                      {head && !d.sunday ? (
+                      {editable(d.date) && !d.sunday ? (
                         <button
                           type="button"
                           onClick={() => setEditingDay(d.date)}
@@ -268,7 +270,7 @@ export default function AttendancePage() {
                           {label}
                         </button>
                       ) : (
-                        <span title={d.off}>{label}</span>
+                        <span title={head && !d.sunday && !editable(d.date) ? [d.off, 'Only the CEO can change past days'].filter(Boolean).join(' · ') : d.off}>{label}</span>
                       )}
                     </th>
                   )
@@ -305,6 +307,9 @@ export default function AttendancePage() {
                       const entry = attendance[e.id]?.[d.date]
                       const mark = entry?.mark
                       const future = d.date > today
+                      const open = editable(d.date) && !future
+                      // Whoever keeps attendance sees why an earlier day no longer changes.
+                      const locked = head && !future && !open
                       const state = mark
                         ? [
                             ATTENDANCE[mark].label,
@@ -323,15 +328,15 @@ export default function AttendancePage() {
                         <td key={d.date} className={cn('border-t border-ink-100 px-px py-1 text-center', d.date === today ? 'bg-brand-50/60' : d.off && 'bg-ink-50')}>
                           <button
                             type="button"
-                            disabled={!head || future}
+                            disabled={!open}
                             onClick={() => setAttendance(e.id, d.date, next(mark, !!d.off))}
                             aria-label={`${e.name}, ${d.date}: ${state}`}
-                            title={mark ? state : d.off}
+                            title={locked ? `${mark ? state : d.off ? `Off · ${d.off}` : 'Not marked'} · only the CEO can change past days` : mark ? state : d.off}
                             className={cn(
                               'relative size-6 rounded text-[11px] font-bold transition-colors disabled:cursor-default',
                               mark ? MARK_CELL[mark] : d.off ? 'text-ink-300' : future ? 'text-ink-200' : 'text-ink-300 ring-1 ring-ink-200 ring-inset',
                               mark && d.off && 'ring-2 ring-brand-300',
-                              head && !future && 'hover:ring-2 hover:ring-brand-400',
+                              open && 'hover:ring-2 hover:ring-brand-400',
                             )}
                           >
                             {mark ?? (d.off ? '·' : '')}
@@ -380,7 +385,9 @@ export default function AttendancePage() {
           </p>
           <p>
             {head
-              ? 'Click a day to step through Present, Half day, Leave and blank (on an off day, Present, Half day and blank). Click a date to make it an off day for everyone, such as a holiday. A dot at the top marks overtime; a tick at the bottom marks on time, and an amber dot late. Overtime and on time are set under Today or on a person’s page.'
+              ? `Click a day to step through Present, Half day, Leave and blank (on an off day, Present, Half day and blank). Click a date to make it an off day for everyone, such as a holiday. A dot at the top marks overtime; a tick at the bottom marks on time, and an amber dot late. Overtime and on time are set under Today or on a person’s page. ${
+                  me.role === 'ceo' ? 'You can correct earlier days; everyone else can change only today.' : 'Attendance can be changed only on the day itself; past days are corrected by the CEO.'
+                }`
               : 'Marked by your heads. Ask them if a day looks wrong.'}
           </p>
         </div>

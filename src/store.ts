@@ -478,6 +478,14 @@ export function can(e: Employee, p: Permission): boolean {
   return permissionsOf(e).includes(p)
 }
 
+/**
+ * Whether a person may change attendance (or a day off for everyone) on a date: whoever keeps attendance does it on
+ * the day itself, and only the CEO goes back and corrects earlier days. The database holds to the same (`day_open`).
+ */
+export function canEditAttendanceOn(e: Employee, date: string): boolean {
+  return can(e, 'manage_attendance') && (date >= todayISO() || e.role === 'ceo')
+}
+
 /** `const can = useCan(); can('view_fees')` for the person using the app. */
 export function useCan(): (p: Permission) => boolean {
   const me = useCurrentUser()
